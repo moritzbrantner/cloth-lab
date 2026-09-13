@@ -342,9 +342,7 @@ fn validate_step_config(config: FixedStepConfig) -> Result<(), ClothError> {
     if config.solver_iterations == 0 {
         return Err(ClothError::InvalidSolverIterations);
     }
-    if !config.velocity_damping.is_finite()
-        || !(0.0..=1.0).contains(&config.velocity_damping)
-    {
+    if !config.velocity_damping.is_finite() || !(0.0..=1.0).contains(&config.velocity_damping) {
         return Err(ClothError::InvalidVelocityDamping);
     }
     Ok(())
@@ -355,11 +353,7 @@ fn solve_distance_constraint(
     constraint: &mut DistanceConstraint,
     delta_seconds: f64,
 ) {
-    let (particle_a, particle_b) = two_mut(
-        particles,
-        constraint.particle_a,
-        constraint.particle_b,
-    );
+    let (particle_a, particle_b) = two_mut(particles, constraint.particle_a, constraint.particle_b);
     let delta = particle_a.position - particle_b.position;
     let length = delta.length();
     if length <= f64::EPSILON {
@@ -373,8 +367,7 @@ fn solve_distance_constraint(
 
     let alpha = constraint.compliance / (delta_seconds * delta_seconds);
     let constraint_error = length - constraint.rest_length;
-    let delta_lambda =
-        (-constraint_error - alpha * constraint.lambda) / (weight_sum + alpha);
+    let delta_lambda = (-constraint_error - alpha * constraint.lambda) / (weight_sum + alpha);
     constraint.lambda += delta_lambda;
 
     let normal = delta / length;
