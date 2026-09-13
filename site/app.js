@@ -197,7 +197,7 @@ function drawFrame() {
   }
 
   slider.value = String(frameIndex);
-  status.textContent = `step ${frame.step} · fingerprint ${frame.fingerprint} · max stretch error ${frame.maxStretchError.toExponential(2)} · collision projections ${frame.collisionProjections}`;
+  status.textContent = `step ${frame.step} · fingerprint ${frame.fingerprint} · stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · collision projections ${frame.collisionProjections}`;
 }
 
 function tick(timestamp) {
@@ -250,6 +250,9 @@ fetch("frames.json")
       !Array.isArray(data.capsule.end)
     ) {
       throw new Error("snapshot payload has no capsule collider metadata");
+    }
+    if (!data.frames.every((frame) => Number.isFinite(frame.maxShearError))) {
+      throw new Error("snapshot payload has no shear error evidence");
     }
 
     snapshots = data;
