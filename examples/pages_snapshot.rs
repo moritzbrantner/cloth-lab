@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use cloth_lab::{
-    Cloth, ClothCollider, FixedStepConfig, RectangularClothConfig, SphereCollider, Vec3,
+    CapsuleCollider, Cloth, ClothCollider, FixedStepConfig, RectangularClothConfig, Vec3,
 };
 
 const COLUMNS: usize = 14;
@@ -9,9 +9,10 @@ const ROWS: usize = 12;
 const SPACING: f64 = 0.16;
 const DISPLAY_FRAMES: usize = 181;
 const STEPS_PER_FRAME: usize = 2;
-const SPHERE: SphereCollider = SphereCollider {
-    center: Vec3::new(1.04, -0.58, 0.88),
-    radius: 0.46,
+const CAPSULE: CapsuleCollider = CapsuleCollider {
+    start: Vec3::new(0.52, -0.58, 0.88),
+    end: Vec3::new(1.56, -0.58, 0.88),
+    radius: 0.28,
     thickness: 0.025,
 };
 
@@ -26,17 +27,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cloth.pin_top_corners()?;
 
     let step = FixedStepConfig::default();
-    let colliders = [ClothCollider::Sphere(SPHERE)];
+    let colliders = [ClothCollider::Capsule(CAPSULE)];
     let mut output = String::with_capacity(1_000_000);
     write!(
         &mut output,
-        "{{\"columns\":{COLUMNS},\"rows\":{ROWS},\"spacing\":{SPACING:.8},\"stepsPerFrame\":{STEPS_PER_FRAME},\"deltaSeconds\":{:.17},\"sphere\":{{\"center\":[{:.8},{:.8},{:.8}],\"radius\":{:.8},\"thickness\":{:.8}}},\"triangles\":[",
+        "{{\"columns\":{COLUMNS},\"rows\":{ROWS},\"spacing\":{SPACING:.8},\"stepsPerFrame\":{STEPS_PER_FRAME},\"deltaSeconds\":{:.17},\"capsule\":{{\"start\":[{:.8},{:.8},{:.8}],\"end\":[{:.8},{:.8},{:.8}],\"radius\":{:.8},\"thickness\":{:.8}}},\"triangles\":[",
         step.delta_seconds,
-        SPHERE.center.x,
-        SPHERE.center.y,
-        SPHERE.center.z,
-        SPHERE.radius,
-        SPHERE.thickness
+        CAPSULE.start.x,
+        CAPSULE.start.y,
+        CAPSULE.start.z,
+        CAPSULE.end.x,
+        CAPSULE.end.y,
+        CAPSULE.end.z,
+        CAPSULE.radius,
+        CAPSULE.thickness
     )?;
 
     for (index, triangle) in cloth.triangles().iter().enumerate() {
