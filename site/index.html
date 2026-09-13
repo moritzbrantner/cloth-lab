@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Deterministic cloth-lab simulation snapshots rendered from the Rust solver."
+      content="Deterministic cloth-lab sphere collision snapshots rendered from the Rust solver."
     />
     <title>cloth-lab demo</title>
     <link rel="stylesheet" href="styles.css" />
@@ -18,8 +18,8 @@
           <p class="eyebrow">cloth-lab</p>
           <h1>Deterministic cloth simulation</h1>
           <p>
-            The Rust solver generates every simulation snapshot. This page only renders and replays
-            that authoritative state.
+            The Rust solver generates every cloth and collision snapshot. This page only renders and
+            replays that authoritative state.
           </p>
         </div>
         <a href="https://github.com/moritzbrantner/cloth-lab">Source on GitHub</a>
@@ -28,7 +28,7 @@
       <section class="viewer" aria-labelledby="viewer-title">
         <div class="viewer-heading">
           <div>
-            <h2 id="viewer-title">Pinned sheet</h2>
+            <h2 id="viewer-title">Pinned sheet over a sphere</h2>
             <p id="status">Loading deterministic snapshots…</p>
           </div>
           <div class="actions">
@@ -42,7 +42,7 @@
           width="1200"
           height="760"
           role="img"
-          aria-label="Three-dimensional rendering of a simulated cloth sheet pinned at two corners"
+          aria-label="Three-dimensional rendering of a simulated cloth sheet colliding with a sphere"
         ></canvas>
 
         <label class="timeline" for="frame-slider">
@@ -53,7 +53,8 @@
 
       <p class="boundary-note">
         Playback controls do not advance physics in the browser. They select snapshots produced by
-        the fixed-step Rust simulation during the Pages build.
+        the fixed-step Rust simulation during the Pages build, including the collider and contact
+        evidence used by that run.
       </p>
     </main>
   </body>
