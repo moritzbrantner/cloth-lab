@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Deterministic cloth-lab sphere collision snapshots rendered from the Rust solver."
+      content="Deterministic cloth-lab capsule collision snapshots rendered from the Rust solver."
     />
     <title>cloth-lab demo</title>
     <link rel="stylesheet" href="styles.css" />
@@ -28,7 +28,7 @@
       <section class="viewer" aria-labelledby="viewer-title">
         <div class="viewer-heading">
           <div>
-            <h2 id="viewer-title">Pinned sheet over a sphere</h2>
+            <h2 id="viewer-title">Pinned sheet over a capsule</h2>
             <p id="status">Loading deterministic snapshots…</p>
           </div>
           <div class="actions">
@@ -42,7 +42,7 @@
           width="1200"
           height="760"
           role="img"
-          aria-label="Three-dimensional rendering of a simulated cloth sheet colliding with a sphere"
+          aria-label="Three-dimensional rendering of a simulated cloth sheet colliding with a capsule"
         ></canvas>
 
         <label class="timeline" for="frame-slider">

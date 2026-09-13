@@ -22,6 +22,12 @@ function includePoint(bounds, [x, y, z]) {
   bounds.maxZ = Math.max(bounds.maxZ, z);
 }
 
+function includeRadius(bounds, point, radius) {
+  const [x, y, z] = point;
+  includePoint(bounds, [x - radius, y - radius, z - radius]);
+  includePoint(bounds, [x + radius, y + radius, z + radius]);
+}
+
 function computeProjection(data) {
   const bounds = {
     minX: Number.POSITIVE_INFINITY,
@@ -38,11 +44,10 @@ function computeProjection(data) {
     }
   }
 
-  if (data.sphere) {
-    const radius = data.sphere.radius + data.sphere.thickness;
-    const [x, y, z] = data.sphere.center;
-    includePoint(bounds, [x - radius, y - radius, z - radius]);
-    includePoint(bounds, [x + radius, y + radius, z + radius]);
+  if (data.capsule) {
+    const radius = data.capsule.radius + data.capsule.thickness;
+    includeRadius(bounds, data.capsule.start, radius);
+    includeRadius(bounds, data.capsule.end, radius);
   }
 
   const center = [
@@ -108,36 +113,38 @@ function projectedRadius(center, radius) {
   );
 }
 
-function drawSphere(sphere) {
-  const center = project(sphere.center);
-  const physicalRadius = projectedRadius(sphere.center, sphere.radius);
-  const shellRadius = projectedRadius(sphere.center, sphere.radius + sphere.thickness);
-  const gradient = context.createRadialGradient(
-    center.x - physicalRadius * 0.28,
-    center.y - physicalRadius * 0.32,
-    physicalRadius * 0.12,
-    center.x,
-    center.y,
-    physicalRadius,
-  );
-  gradient.addColorStop(0, "rgba(155, 177, 202, 0.78)");
-  gradient.addColorStop(1, "rgba(46, 66, 88, 0.92)");
+function drawCapsule(capsule) {
+  const start = project(capsule.start);
+  const end = project(capsule.end);
+  const midpoint = capsule.start.map((value, index) => (value + capsule.end[index]) / 2);
+  const physicalRadius = projectedRadius(midpoint, capsule.radius);
+  const shellRadius = projectedRadius(midpoint, capsule.radius + capsule.thickness);
+
+  context.save();
+  context.lineCap = "round";
 
   context.beginPath();
-  context.arc(center.x, center.y, physicalRadius, 0, Math.PI * 2);
-  context.fillStyle = gradient;
-  context.fill();
-  context.strokeStyle = "rgba(206, 221, 236, 0.6)";
-  context.lineWidth = Math.max(1, canvas.width / 1200);
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.strokeStyle = "rgba(240, 195, 109, 0.2)";
+  context.lineWidth = shellRadius * 2;
   context.stroke();
 
   context.beginPath();
-  context.arc(center.x, center.y, shellRadius, 0, Math.PI * 2);
-  context.setLineDash([Math.max(4, canvas.width / 260), Math.max(4, canvas.width / 260)]);
-  context.strokeStyle = "rgba(240, 195, 109, 0.72)";
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.strokeStyle = "rgba(67, 88, 112, 0.96)";
+  context.lineWidth = physicalRadius * 2;
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.setLineDash([Math.max(5, canvas.width / 240), Math.max(5, canvas.width / 240)]);
+  context.strokeStyle = "rgba(205, 220, 236, 0.48)";
   context.lineWidth = Math.max(1, canvas.width / 1400);
   context.stroke();
-  context.setLineDash([]);
+  context.restore();
 }
 
 function drawFrame() {
@@ -162,9 +169,7 @@ function drawFrame() {
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.lineJoin = "round";
 
-  if (snapshots.sphere) {
-    drawSphere(snapshots.sphere);
-  }
+  drawCapsule(snapshots.capsule);
 
   for (const { triangle } of triangles) {
     const a = projected[triangle[0]];
@@ -239,8 +244,12 @@ fetch("frames.json")
     if (!Array.isArray(data.frames) || data.frames.length === 0) {
       throw new Error("snapshot payload has no frames");
     }
-    if (!data.sphere || !Array.isArray(data.sphere.center)) {
-      throw new Error("snapshot payload has no sphere collider metadata");
+    if (
+      !data.capsule ||
+      !Array.isArray(data.capsule.start) ||
+      !Array.isArray(data.capsule.end)
+    ) {
+      throw new Error("snapshot payload has no capsule collider metadata");
     }
 
     snapshots = data;

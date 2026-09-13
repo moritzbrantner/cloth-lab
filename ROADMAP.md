@@ -20,6 +20,8 @@
 - Add collision thickness and deterministic contact ordering.
 - Cover tunneling-prone fixtures before expanding collider support.
 
+**Status:** complete for the initial sphere/capsule scope. Both collider types share the deterministic cloth contact path, validate before state mutation, include explicit collision thickness, and have replay plus tunneling fixtures. Broader rigid-body collision authority remains outside this repository.
+
 ## 3. Textile behavior
 
 - Add shear resistance.
