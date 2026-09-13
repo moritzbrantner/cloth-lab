@@ -1,0 +1,17 @@
+[package]
+name = "cloth-lab"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.98"
+description = "Deterministic cloth and textile simulation experiments"
+
+[lib]
+name = "cloth_lab"
+path = "src/lib.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
