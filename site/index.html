@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Deterministic cloth-lab simulation snapshots rendered from the Rust solver."
+    />
+    <title>cloth-lab demo</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header class="intro">
+        <div>
+          <p class="eyebrow">cloth-lab</p>
+          <h1>Deterministic cloth simulation</h1>
+          <p>
+            The Rust solver generates every simulation snapshot. This page only renders and replays
+            that authoritative state.
+          </p>
+        </div>
+        <a href="https://github.com/moritzbrantner/cloth-lab">Source on GitHub</a>
+      </header>
+
+      <section class="viewer" aria-labelledby="viewer-title">
+        <div class="viewer-heading">
+          <div>
+            <h2 id="viewer-title">Pinned sheet</h2>
+            <p id="status">Loading deterministic snapshots…</p>
+          </div>
+          <div class="actions">
+            <button id="play-toggle" type="button" disabled>Pause</button>
+            <button id="restart" type="button" disabled>Restart</button>
+          </div>
+        </div>
+
+        <canvas
+          id="cloth-canvas"
+          width="1200"
+          height="760"
+          role="img"
+          aria-label="Three-dimensional rendering of a simulated cloth sheet pinned at two corners"
+        ></canvas>
+
+        <label class="timeline" for="frame-slider">
+          <span>Timeline</span>
+          <input id="frame-slider" type="range" min="0" max="0" value="0" disabled />
+        </label>
+      </section>
+
+      <p class="boundary-note">
+        Playback controls do not advance physics in the browser. They select snapshots produced by
+        the fixed-step Rust simulation during the Pages build.
+      </p>
+    </main>
+  </body>
+</html>
