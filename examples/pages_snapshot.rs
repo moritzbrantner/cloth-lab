@@ -7,6 +7,8 @@ use cloth_lab::{
 const COLUMNS: usize = 14;
 const ROWS: usize = 12;
 const SPACING: f64 = 0.16;
+const STRETCH_COMPLIANCE: f64 = 1.0e-7;
+const SHEAR_COMPLIANCE: f64 = 2.5e-7;
 const DISPLAY_FRAMES: usize = 181;
 const STEPS_PER_FRAME: usize = 2;
 const CAPSULE: CapsuleCollider = CapsuleCollider {
@@ -22,7 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rows: ROWS,
         spacing: SPACING,
         particle_mass: 1.0,
-        stretch_compliance: 1.0e-7,
+        stretch_compliance: STRETCH_COMPLIANCE,
+        shear_compliance: SHEAR_COMPLIANCE,
     })?;
     cloth.pin_top_corners()?;
 
@@ -31,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut output = String::with_capacity(1_000_000);
     write!(
         &mut output,
-        "{{\"columns\":{COLUMNS},\"rows\":{ROWS},\"spacing\":{SPACING:.8},\"stepsPerFrame\":{STEPS_PER_FRAME},\"deltaSeconds\":{:.17},\"capsule\":{{\"start\":[{:.8},{:.8},{:.8}],\"end\":[{:.8},{:.8},{:.8}],\"radius\":{:.8},\"thickness\":{:.8}}},\"triangles\":[",
+        "{{\"columns\":{COLUMNS},\"rows\":{ROWS},\"spacing\":{SPACING:.8},\"stretchCompliance\":{STRETCH_COMPLIANCE:.12},\"shearCompliance\":{SHEAR_COMPLIANCE:.12},\"stepsPerFrame\":{STEPS_PER_FRAME},\"deltaSeconds\":{:.17},\"capsule\":{{\"start\":[{:.8},{:.8},{:.8}],\"end\":[{:.8},{:.8},{:.8}],\"radius\":{:.8},\"thickness\":{:.8}}},\"triangles\":[",
         step.delta_seconds,
         CAPSULE.start.x,
         CAPSULE.start.y,
@@ -67,7 +70,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     output.push_str("],\"frames\":[");
-    write_frame(&mut output, 0, &cloth, cloth.max_stretch_error(), 0)?;
+    write_frame(
+        &mut output,
+        0,
+        &cloth,
+        cloth.max_stretch_error(),
+        cloth.max_shear_error(),
+        0,
+    )?;
 
     for frame_index in 1..DISPLAY_FRAMES {
         let mut report = cloth.step_with_colliders(step, &colliders)?;
@@ -81,6 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             frame_index * STEPS_PER_FRAME,
             &cloth,
             report.max_stretch_error,
+            report.max_shear_error,
             report.collision_projections,
         )?;
     }
@@ -95,11 +106,12 @@ fn write_frame(
     step: usize,
     cloth: &Cloth,
     max_stretch_error: f64,
+    max_shear_error: f64,
     collision_projections: usize,
 ) -> std::fmt::Result {
     write!(
         output,
-        "{{\"step\":{step},\"fingerprint\":\"{:016x}\",\"maxStretchError\":{max_stretch_error:.12},\"collisionProjections\":{collision_projections},\"positions\":[",
+        "{{\"step\":{step},\"fingerprint\":\"{:016x}\",\"maxStretchError\":{max_stretch_error:.12},\"maxShearError\":{max_shear_error:.12},\"collisionProjections\":{collision_projections},\"positions\":[",
         cloth.state_fingerprint()
     )?;
 
