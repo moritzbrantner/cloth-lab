@@ -481,9 +481,8 @@ fn solve_sphere_collision(particle: &mut Particle, collider: SphereCollider) -> 
         return false;
     }
 
-    let projection = start_delta.x * movement.x
-        + start_delta.y * movement.y
-        + start_delta.z * movement.z;
+    let projection =
+        start_delta.x * movement.x + start_delta.y * movement.y + start_delta.z * movement.z;
     let constant = start_distance_squared - radius_squared;
     let discriminant = projection * projection - movement_squared * constant;
     if discriminant < 0.0 {
@@ -645,7 +644,11 @@ mod tests {
 
         let ClothCollider::Sphere(sphere) = collider;
         let minimum_distance = sphere.effective_radius() - 1.0e-9;
-        for particle in first.particles().iter().filter(|particle| !particle.is_pinned()) {
+        for particle in first
+            .particles()
+            .iter()
+            .filter(|particle| !particle.is_pinned())
+        {
             assert!((particle.position() - sphere.center).length() >= minimum_distance);
         }
     }
