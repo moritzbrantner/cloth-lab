@@ -538,7 +538,8 @@ fn solve_capsule_collision(particle: &mut Particle, collider: CapsuleCollider) -
     let effective_radius = collider.effective_radius();
     let radius_squared = effective_radius * effective_radius;
     let axis = collider.end - collider.start;
-    let current_axis_point = closest_point_on_segment(particle.position, collider.start, collider.end);
+    let current_axis_point =
+        closest_point_on_segment(particle.position, collider.start, collider.end);
     let current_delta = particle.position - current_axis_point;
 
     if current_delta.length_squared() < radius_squared {
@@ -577,7 +578,8 @@ fn solve_capsule_collision(particle: &mut Particle, collider: CapsuleCollider) -
     for _ in 0..48 {
         let candidate_fraction = (outside_fraction + inside_fraction) * 0.5;
         let candidate = particle.previous_position + movement * candidate_fraction;
-        let candidate_axis_point = closest_point_on_segment(candidate, collider.start, collider.end);
+        let candidate_axis_point =
+            closest_point_on_segment(candidate, collider.start, collider.end);
         let distance_squared = (candidate - candidate_axis_point).length_squared();
         if distance_squared > radius_squared {
             outside_fraction = candidate_fraction;
@@ -908,7 +910,8 @@ mod tests {
             .iter()
             .filter(|particle| !particle.is_pinned())
         {
-            let axis_point = closest_point_on_segment(particle.position(), capsule.start, capsule.end);
+            let axis_point =
+                closest_point_on_segment(particle.position(), capsule.start, capsule.end);
             assert!((particle.position() - axis_point).length() >= minimum_distance);
         }
     }
