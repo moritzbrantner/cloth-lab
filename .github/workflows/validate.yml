@@ -23,3 +23,9 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Test
         run: cargo test --locked
+      - name: Generate Pages snapshots
+        run: |
+          cargo run --locked --example pages_snapshot > /tmp/cloth-lab-frames.json
+          test -s /tmp/cloth-lab-frames.json
+      - name: Check Pages JavaScript
+        run: node --check site/app.js
