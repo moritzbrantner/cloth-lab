@@ -30,6 +30,8 @@
 - Separate solver parameters from named material presets.
 - Establish measurable cotton-, denim-, silk-, and leather-like qualitative fixtures without claiming real-world material accuracy prematurely.
 
+**Progress:** shear resistance is implemented as a separate deterministic XPBD constraint family with two diagonals per quad, independent compliance, replay evidence, and maximum shear-error reporting. Bending, friction, and material presets remain.
+
 ## 4. Self-collision
 
 - Add cloth thickness and vertex/triangle self-collision.
