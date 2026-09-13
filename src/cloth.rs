@@ -17,6 +17,9 @@ pub enum ClothError {
     InvalidGravity,
     InvalidSolverIterations,
     InvalidVelocityDamping,
+    InvalidColliderCenter,
+    InvalidColliderRadius,
+    InvalidCollisionThickness,
 }
 
 impl fmt::Display for ClothError {
@@ -32,6 +35,11 @@ impl fmt::Display for ClothError {
             Self::InvalidGravity => "gravity must contain only finite components",
             Self::InvalidSolverIterations => "solver iteration count must be positive",
             Self::InvalidVelocityDamping => "velocity damping must be finite and between 0 and 1",
+            Self::InvalidColliderCenter => "collider center must contain only finite components",
+            Self::InvalidColliderRadius => "collider radius must be finite and positive",
+            Self::InvalidCollisionThickness => {
+                "collision thickness must be finite, non-negative, and produce a finite shell"
+            }
         };
         formatter.write_str(message)
     }
@@ -106,9 +114,29 @@ impl Default for FixedStepConfig {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SphereCollider {
+    pub center: Vec3,
+    pub radius: f64,
+    pub thickness: f64,
+}
+
+impl SphereCollider {
+    #[must_use]
+    pub fn effective_radius(self) -> f64 {
+        self.radius + self.thickness
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ClothCollider {
+    Sphere(SphereCollider),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StepReport {
     pub max_stretch_error: f64,
     pub state_fingerprint: u64,
+    pub collision_projections: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -249,7 +277,16 @@ impl Cloth {
     }
 
     pub fn step(&mut self, config: FixedStepConfig) -> Result<StepReport, ClothError> {
+        self.step_with_colliders(config, &[])
+    }
+
+    pub fn step_with_colliders(
+        &mut self,
+        config: FixedStepConfig,
+        colliders: &[ClothCollider],
+    ) -> Result<StepReport, ClothError> {
         validate_step_config(config)?;
+        validate_colliders(colliders)?;
 
         let delta_squared = config.delta_seconds * config.delta_seconds;
         for particle in &mut self.particles {
@@ -269,16 +306,19 @@ impl Cloth {
             constraint.lambda = 0.0;
         }
 
+        let mut collision_projections = 0;
         for _ in 0..config.solver_iterations {
             let particles = &mut self.particles;
             for constraint in &mut self.stretch_constraints {
                 solve_distance_constraint(particles, constraint, config.delta_seconds);
             }
+            collision_projections += solve_collisions(particles, colliders);
         }
 
         Ok(StepReport {
             max_stretch_error: self.max_stretch_error(),
             state_fingerprint: self.state_fingerprint(),
+            collision_projections,
         })
     }
 
@@ -348,6 +388,31 @@ fn validate_step_config(config: FixedStepConfig) -> Result<(), ClothError> {
     Ok(())
 }
 
+fn validate_colliders(colliders: &[ClothCollider]) -> Result<(), ClothError> {
+    for collider in colliders {
+        match collider {
+            ClothCollider::Sphere(sphere) => validate_sphere_collider(*sphere)?,
+        }
+    }
+    Ok(())
+}
+
+fn validate_sphere_collider(collider: SphereCollider) -> Result<(), ClothError> {
+    if !collider.center.is_finite() {
+        return Err(ClothError::InvalidColliderCenter);
+    }
+    if !collider.radius.is_finite() || collider.radius <= 0.0 {
+        return Err(ClothError::InvalidColliderRadius);
+    }
+    if !collider.thickness.is_finite()
+        || collider.thickness < 0.0
+        || !collider.effective_radius().is_finite()
+    {
+        return Err(ClothError::InvalidCollisionThickness);
+    }
+    Ok(())
+}
+
 fn solve_distance_constraint(
     particles: &mut [Particle],
     constraint: &mut DistanceConstraint,
@@ -373,6 +438,81 @@ fn solve_distance_constraint(
     let normal = delta / length;
     particle_a.position += normal * (particle_a.inverse_mass * delta_lambda);
     particle_b.position -= normal * (particle_b.inverse_mass * delta_lambda);
+}
+
+fn solve_collisions(particles: &mut [Particle], colliders: &[ClothCollider]) -> usize {
+    let mut projections = 0;
+    for particle in particles {
+        if particle.is_pinned() {
+            continue;
+        }
+        for collider in colliders {
+            let projected = match collider {
+                ClothCollider::Sphere(sphere) => solve_sphere_collision(particle, *sphere),
+            };
+            projections += usize::from(projected);
+        }
+    }
+    projections
+}
+
+fn solve_sphere_collision(particle: &mut Particle, collider: SphereCollider) -> bool {
+    let effective_radius = collider.effective_radius();
+    let current_delta = particle.position - collider.center;
+    let current_distance = current_delta.length();
+
+    if current_distance < effective_radius {
+        let previous_delta = particle.previous_position - collider.center;
+        let normal = collision_normal(current_delta, previous_delta);
+        particle.position = collider.center + normal * effective_radius;
+        return true;
+    }
+
+    let movement = particle.position - particle.previous_position;
+    let movement_squared = movement.length_squared();
+    if movement_squared <= f64::EPSILON {
+        return false;
+    }
+
+    let start_delta = particle.previous_position - collider.center;
+    let radius_squared = effective_radius * effective_radius;
+    let start_distance_squared = start_delta.length_squared();
+    if start_distance_squared <= radius_squared {
+        return false;
+    }
+
+    let projection =
+        start_delta.x * movement.x + start_delta.y * movement.y + start_delta.z * movement.z;
+    let constant = start_distance_squared - radius_squared;
+    let discriminant = projection * projection - movement_squared * constant;
+    if discriminant < 0.0 {
+        return false;
+    }
+
+    let hit_fraction = (-projection - discriminant.sqrt()) / movement_squared;
+    if !(0.0..=1.0).contains(&hit_fraction) {
+        return false;
+    }
+
+    let hit = particle.previous_position + movement * hit_fraction;
+    let hit_delta = hit - collider.center;
+    let normal = collision_normal(hit_delta, start_delta);
+    particle.position = collider.center + normal * effective_radius;
+    true
+}
+
+fn collision_normal(primary: Vec3, fallback: Vec3) -> Vec3 {
+    let primary_length = primary.length();
+    if primary_length > f64::EPSILON {
+        return primary / primary_length;
+    }
+
+    let fallback_length = fallback.length();
+    if fallback_length > f64::EPSILON {
+        return fallback / fallback_length;
+    }
+
+    Vec3::new(0.0, 1.0, 0.0)
 }
 
 fn two_mut<T>(slice: &mut [T], first: usize, second: usize) -> (&mut T, &mut T) {
@@ -410,6 +550,14 @@ mod tests {
             .pin_top_corners()
             .expect("fixture corner indices must be valid");
         cloth
+    }
+
+    fn sphere_fixture() -> ClothCollider {
+        ClothCollider::Sphere(SphereCollider {
+            center: Vec3::new(0.5, -0.5, 0.5),
+            radius: 0.35,
+            thickness: 0.02,
+        })
     }
 
     #[test]
@@ -471,6 +619,75 @@ mod tests {
 
         assert!(cloth.particles()[bottom_middle].position().y < initial_height - 0.1);
         assert!(cloth.max_stretch_error() < 0.02);
+    }
+
+    #[test]
+    fn sphere_collision_preserves_shell_and_replay() {
+        let collider = sphere_fixture();
+        let mut first = cloth_fixture();
+        let mut second = cloth_fixture();
+        let mut observed_collision = false;
+
+        for _ in 0..240 {
+            let first_report = first
+                .step_with_colliders(FixedStepConfig::default(), &[collider])
+                .expect("sphere collision step must remain valid");
+            let second_report = second
+                .step_with_colliders(FixedStepConfig::default(), &[collider])
+                .expect("replayed sphere collision step must remain valid");
+            assert_eq!(first_report, second_report);
+            observed_collision |= first_report.collision_projections > 0;
+        }
+
+        assert!(observed_collision);
+        assert_eq!(first.particles(), second.particles());
+
+        let ClothCollider::Sphere(sphere) = collider;
+        let minimum_distance = sphere.effective_radius() - 1.0e-9;
+        for particle in first
+            .particles()
+            .iter()
+            .filter(|particle| !particle.is_pinned())
+        {
+            assert!((particle.position() - sphere.center).length() >= minimum_distance);
+        }
+    }
+
+    #[test]
+    fn swept_sphere_collision_blocks_tunneling() {
+        let collider = SphereCollider {
+            center: Vec3::ZERO,
+            radius: 0.25,
+            thickness: 0.05,
+        };
+        let mut particle = Particle {
+            position: Vec3::new(1.0, 0.0, 0.0),
+            previous_position: Vec3::new(-1.0, 0.0, 0.0),
+            inverse_mass: 1.0,
+        };
+
+        assert!(solve_sphere_collision(&mut particle, collider));
+        assert!((particle.position.x + collider.effective_radius()).abs() < 1.0e-12);
+        assert!(particle.position.y.abs() < 1.0e-12);
+        assert!(particle.position.z.abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn invalid_collider_fails_closed_before_advancing() {
+        let mut cloth = cloth_fixture();
+        let fingerprint = cloth.state_fingerprint();
+        let invalid = ClothCollider::Sphere(SphereCollider {
+            center: Vec3::ZERO,
+            radius: 0.5,
+            thickness: -0.1,
+        });
+
+        let error = cloth
+            .step_with_colliders(FixedStepConfig::default(), &[invalid])
+            .expect_err("negative collision thickness must be rejected");
+
+        assert_eq!(error, ClothError::InvalidCollisionThickness);
+        assert_eq!(cloth.state_fingerprint(), fingerprint);
     }
 
     #[test]

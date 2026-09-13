@@ -13,6 +13,15 @@ let playing = true;
 let lastAdvance = 0;
 let projection = null;
 
+function includePoint(bounds, [x, y, z]) {
+  bounds.minX = Math.min(bounds.minX, x);
+  bounds.minY = Math.min(bounds.minY, y);
+  bounds.minZ = Math.min(bounds.minZ, z);
+  bounds.maxX = Math.max(bounds.maxX, x);
+  bounds.maxY = Math.max(bounds.maxY, y);
+  bounds.maxZ = Math.max(bounds.maxZ, z);
+}
+
 function computeProjection(data) {
   const bounds = {
     minX: Number.POSITIVE_INFINITY,
@@ -24,14 +33,16 @@ function computeProjection(data) {
   };
 
   for (const frame of data.frames) {
-    for (const [x, y, z] of frame.positions) {
-      bounds.minX = Math.min(bounds.minX, x);
-      bounds.minY = Math.min(bounds.minY, y);
-      bounds.minZ = Math.min(bounds.minZ, z);
-      bounds.maxX = Math.max(bounds.maxX, x);
-      bounds.maxY = Math.max(bounds.maxY, y);
-      bounds.maxZ = Math.max(bounds.maxZ, z);
+    for (const position of frame.positions) {
+      includePoint(bounds, position);
     }
+  }
+
+  if (data.sphere) {
+    const radius = data.sphere.radius + data.sphere.thickness;
+    const [x, y, z] = data.sphere.center;
+    includePoint(bounds, [x - radius, y - radius, z - radius]);
+    includePoint(bounds, [x + radius, y + radius, z + radius]);
   }
 
   const center = [
@@ -87,6 +98,48 @@ function project(position) {
   };
 }
 
+function projectedRadius(center, radius) {
+  const projectedCenter = project(center);
+  const projectedX = project([center[0] + radius, center[1], center[2]]);
+  const projectedY = project([center[0], center[1] + radius, center[2]]);
+  return Math.max(
+    Math.hypot(projectedX.x - projectedCenter.x, projectedX.y - projectedCenter.y),
+    Math.hypot(projectedY.x - projectedCenter.x, projectedY.y - projectedCenter.y),
+  );
+}
+
+function drawSphere(sphere) {
+  const center = project(sphere.center);
+  const physicalRadius = projectedRadius(sphere.center, sphere.radius);
+  const shellRadius = projectedRadius(sphere.center, sphere.radius + sphere.thickness);
+  const gradient = context.createRadialGradient(
+    center.x - physicalRadius * 0.28,
+    center.y - physicalRadius * 0.32,
+    physicalRadius * 0.12,
+    center.x,
+    center.y,
+    physicalRadius,
+  );
+  gradient.addColorStop(0, "rgba(155, 177, 202, 0.78)");
+  gradient.addColorStop(1, "rgba(46, 66, 88, 0.92)");
+
+  context.beginPath();
+  context.arc(center.x, center.y, physicalRadius, 0, Math.PI * 2);
+  context.fillStyle = gradient;
+  context.fill();
+  context.strokeStyle = "rgba(206, 221, 236, 0.6)";
+  context.lineWidth = Math.max(1, canvas.width / 1200);
+  context.stroke();
+
+  context.beginPath();
+  context.arc(center.x, center.y, shellRadius, 0, Math.PI * 2);
+  context.setLineDash([Math.max(4, canvas.width / 260), Math.max(4, canvas.width / 260)]);
+  context.strokeStyle = "rgba(240, 195, 109, 0.72)";
+  context.lineWidth = Math.max(1, canvas.width / 1400);
+  context.stroke();
+  context.setLineDash([]);
+}
+
 function drawFrame() {
   if (!snapshots) {
     return;
@@ -108,6 +161,10 @@ function drawFrame() {
 
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.lineJoin = "round";
+
+  if (snapshots.sphere) {
+    drawSphere(snapshots.sphere);
+  }
 
   for (const { triangle } of triangles) {
     const a = projected[triangle[0]];
@@ -135,7 +192,7 @@ function drawFrame() {
   }
 
   slider.value = String(frameIndex);
-  status.textContent = `step ${frame.step} · fingerprint ${frame.fingerprint} · max stretch error ${frame.maxStretchError.toExponential(2)}`;
+  status.textContent = `step ${frame.step} · fingerprint ${frame.fingerprint} · max stretch error ${frame.maxStretchError.toExponential(2)} · collision projections ${frame.collisionProjections}`;
 }
 
 function tick(timestamp) {
@@ -181,6 +238,9 @@ fetch("frames.json")
   .then((data) => {
     if (!Array.isArray(data.frames) || data.frames.length === 0) {
       throw new Error("snapshot payload has no frames");
+    }
+    if (!data.sphere || !Array.isArray(data.sphere.center)) {
+      throw new Error("snapshot payload has no sphere collider metadata");
     }
 
     snapshots = data;
