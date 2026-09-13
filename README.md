@@ -1,0 +1,14 @@
+# cloth-lab
+
+Experimental deterministic cloth and textile simulation in Rust.
+
+The repository is a proving ground for cloth-specific simulation techniques before any generally useful pieces are promoted into `physics-engine`.
+
+## Authority boundary
+
+- `cloth-lab` owns cloth particles, XPBD constraints, cloth material parameters, self-collision experiments, and garment-specific behavior.
+- `physics-engine` remains authoritative for reusable rigid-body and collision concepts. Cloth-specific experiments must not force cloth assumptions into the rigid-body core.
+- Rendering observes simulation state; it does not own simulation behavior.
+- Deterministic fixed-step behavior and reproducible fixtures are required before optimization claims are accepted.
+
+See [ROADMAP.md](ROADMAP.md) for the staged plan.
