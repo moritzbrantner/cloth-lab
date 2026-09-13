@@ -9,7 +9,7 @@ mod cloth;
 mod math;
 
 pub use cloth::{
-    Cloth, ClothError, DistanceConstraint, FixedStepConfig, Particle, RectangularClothConfig,
-    StepReport,
+    Cloth, ClothCollider, ClothError, DistanceConstraint, FixedStepConfig, Particle,
+    RectangularClothConfig, SphereCollider, StepReport,
 };
 pub use math::Vec3;
