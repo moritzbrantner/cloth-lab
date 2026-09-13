@@ -96,6 +96,7 @@ pub struct RectangularClothConfig {
     pub spacing: f64,
     pub particle_mass: f64,
     pub stretch_compliance: f64,
+    pub shear_compliance: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -155,6 +156,7 @@ pub enum ClothCollider {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StepReport {
     pub max_stretch_error: f64,
+    pub max_shear_error: f64,
     pub state_fingerprint: u64,
     pub collision_projections: usize,
 }
@@ -166,6 +168,7 @@ pub struct Cloth {
     particles: Vec<Particle>,
     triangles: Vec<[usize; 3]>,
     stretch_constraints: Vec<DistanceConstraint>,
+    shear_constraints: Vec<DistanceConstraint>,
 }
 
 impl Cloth {
@@ -188,8 +191,11 @@ impl Cloth {
         let vertical_constraint_count = (config.rows - 1)
             .checked_mul(config.columns)
             .ok_or(ClothError::TopologyTooLarge)?;
-        let constraint_count = horizontal_constraint_count
+        let stretch_constraint_count = horizontal_constraint_count
             .checked_add(vertical_constraint_count)
+            .ok_or(ClothError::TopologyTooLarge)?;
+        let shear_constraint_count = quad_count
+            .checked_mul(2)
             .ok_or(ClothError::TopologyTooLarge)?;
 
         let inverse_mass = 1.0 / config.particle_mass;
@@ -221,7 +227,7 @@ impl Cloth {
             }
         }
 
-        let mut stretch_constraints = Vec::with_capacity(constraint_count);
+        let mut stretch_constraints = Vec::with_capacity(stretch_constraint_count);
         for row in 0..config.rows {
             for column in 0..(config.columns - 1) {
                 let particle_a = row * config.columns + column;
@@ -247,12 +253,38 @@ impl Cloth {
             }
         }
 
+        let shear_rest_length = config.spacing * std::f64::consts::SQRT_2;
+        let mut shear_constraints = Vec::with_capacity(shear_constraint_count);
+        for row in 0..(config.rows - 1) {
+            for column in 0..(config.columns - 1) {
+                let top_left = row * config.columns + column;
+                let top_right = top_left + 1;
+                let bottom_left = (row + 1) * config.columns + column;
+                let bottom_right = bottom_left + 1;
+                shear_constraints.push(DistanceConstraint {
+                    particle_a: top_left,
+                    particle_b: bottom_right,
+                    rest_length: shear_rest_length,
+                    compliance: config.shear_compliance,
+                    lambda: 0.0,
+                });
+                shear_constraints.push(DistanceConstraint {
+                    particle_a: top_right,
+                    particle_b: bottom_left,
+                    rest_length: shear_rest_length,
+                    compliance: config.shear_compliance,
+                    lambda: 0.0,
+                });
+            }
+        }
+
         Ok(Self {
             columns: config.columns,
             rows: config.rows,
             particles,
             triangles,
             stretch_constraints,
+            shear_constraints,
         })
     }
 
@@ -279,6 +311,11 @@ impl Cloth {
     #[must_use]
     pub fn stretch_constraints(&self) -> &[DistanceConstraint] {
         &self.stretch_constraints
+    }
+
+    #[must_use]
+    pub fn shear_constraints(&self) -> &[DistanceConstraint] {
+        &self.shear_constraints
     }
 
     pub fn pin(&mut self, particle_index: usize) -> Result<(), ClothError> {
@@ -325,6 +362,9 @@ impl Cloth {
         for constraint in &mut self.stretch_constraints {
             constraint.lambda = 0.0;
         }
+        for constraint in &mut self.shear_constraints {
+            constraint.lambda = 0.0;
+        }
 
         let mut collision_projections = 0;
         for _ in 0..config.solver_iterations {
@@ -332,11 +372,15 @@ impl Cloth {
             for constraint in &mut self.stretch_constraints {
                 solve_distance_constraint(particles, constraint, config.delta_seconds);
             }
+            for constraint in &mut self.shear_constraints {
+                solve_distance_constraint(particles, constraint, config.delta_seconds);
+            }
             collision_projections += solve_collisions(particles, colliders);
         }
 
         Ok(StepReport {
             max_stretch_error: self.max_stretch_error(),
+            max_shear_error: self.max_shear_error(),
             state_fingerprint: self.state_fingerprint(),
             collision_projections,
         })
@@ -344,14 +388,12 @@ impl Cloth {
 
     #[must_use]
     pub fn max_stretch_error(&self) -> f64 {
-        self.stretch_constraints
-            .iter()
-            .map(|constraint| {
-                let delta = self.particles[constraint.particle_a].position
-                    - self.particles[constraint.particle_b].position;
-                (delta.length() - constraint.rest_length).abs()
-            })
-            .fold(0.0, f64::max)
+        max_constraint_error(&self.particles, &self.stretch_constraints)
+    }
+
+    #[must_use]
+    pub fn max_shear_error(&self) -> f64 {
+        max_constraint_error(&self.particles, &self.shear_constraints)
     }
 
     #[must_use]
@@ -376,6 +418,17 @@ impl Cloth {
     }
 }
 
+fn max_constraint_error(particles: &[Particle], constraints: &[DistanceConstraint]) -> f64 {
+    constraints
+        .iter()
+        .map(|constraint| {
+            let delta = particles[constraint.particle_a].position
+                - particles[constraint.particle_b].position;
+            (delta.length() - constraint.rest_length).abs()
+        })
+        .fold(0.0, f64::max)
+}
+
 fn validate_rectangular_config(config: RectangularClothConfig) -> Result<(), ClothError> {
     if config.columns < 2 || config.rows < 2 {
         return Err(ClothError::DimensionsTooSmall);
@@ -386,7 +439,10 @@ fn validate_rectangular_config(config: RectangularClothConfig) -> Result<(), Clo
     if !config.particle_mass.is_finite() || config.particle_mass <= 0.0 {
         return Err(ClothError::InvalidParticleMass);
     }
-    if !config.stretch_compliance.is_finite() || config.stretch_compliance < 0.0 {
+    if [config.stretch_compliance, config.shear_compliance]
+        .into_iter()
+        .any(|compliance| !compliance.is_finite() || compliance < 0.0)
+    {
         return Err(ClothError::InvalidCompliance);
     }
     Ok(())
@@ -760,12 +816,25 @@ mod tests {
             spacing: 0.2,
             particle_mass: 1.0,
             stretch_compliance: 1.0e-7,
+            shear_compliance: 2.5e-7,
         })
         .expect("fixture cloth must be valid");
         cloth
             .pin_top_corners()
             .expect("fixture corner indices must be valid");
         cloth
+    }
+
+    fn shear_fixture(shear_compliance: f64) -> Cloth {
+        Cloth::rectangular(RectangularClothConfig {
+            columns: 3,
+            rows: 3,
+            spacing: 0.2,
+            particle_mass: 1.0,
+            stretch_compliance: 1.0e3,
+            shear_compliance,
+        })
+        .expect("shear fixture must be valid")
     }
 
     fn sphere_fixture() -> ClothCollider {
@@ -792,8 +861,15 @@ mod tests {
         assert_eq!(cloth.particles().len(), 36);
         assert_eq!(cloth.triangles().len(), 50);
         assert_eq!(cloth.stretch_constraints().len(), 60);
+        assert_eq!(cloth.shear_constraints().len(), 50);
         assert_eq!(cloth.triangles()[0], [0, 6, 1]);
         assert_eq!(cloth.triangles()[49], [29, 34, 35]);
+        assert_eq!(cloth.shear_constraints()[0].particle_a, 0);
+        assert_eq!(cloth.shear_constraints()[0].particle_b, 7);
+        assert_eq!(cloth.shear_constraints()[1].particle_a, 1);
+        assert_eq!(cloth.shear_constraints()[1].particle_b, 6);
+        assert_eq!(cloth.shear_constraints()[49].particle_a, 29);
+        assert_eq!(cloth.shear_constraints()[49].particle_b, 34);
     }
 
     #[test]
@@ -818,12 +894,13 @@ mod tests {
         let mut second = cloth_fixture();
 
         for _ in 0..240 {
-            first
+            let first_report = first
                 .step(FixedStepConfig::default())
                 .expect("first deterministic step must succeed");
-            second
+            let second_report = second
                 .step(FixedStepConfig::default())
                 .expect("second deterministic step must succeed");
+            assert_eq!(first_report, second_report);
         }
 
         assert_eq!(first.particles(), second.particles());
@@ -831,7 +908,7 @@ mod tests {
     }
 
     #[test]
-    fn hanging_sheet_falls_and_keeps_stretch_bounded() {
+    fn hanging_sheet_falls_and_keeps_constraint_errors_bounded() {
         let mut cloth = cloth_fixture();
         let bottom_middle = (cloth.rows() - 1) * cloth.columns() + cloth.columns() / 2;
         let initial_height = cloth.particles()[bottom_middle].position().y;
@@ -844,6 +921,37 @@ mod tests {
 
         assert!(cloth.particles()[bottom_middle].position().y < initial_height - 0.1);
         assert!(cloth.max_stretch_error() < 0.02);
+        assert!(cloth.max_shear_error() < 0.03);
+    }
+
+    #[test]
+    fn shear_constraints_reduce_diagonal_distortion() {
+        let mut resistant = shear_fixture(1.0e-8);
+        let mut compliant = shear_fixture(1.0e3);
+        let center = 4;
+
+        for cloth in [&mut resistant, &mut compliant] {
+            cloth.particles[center].position += Vec3::new(0.12, 0.0, 0.05);
+            cloth.particles[center].previous_position = cloth.particles[center].position;
+        }
+
+        let step = FixedStepConfig {
+            gravity: Vec3::ZERO,
+            solver_iterations: 20,
+            velocity_damping: 0.0,
+            ..FixedStepConfig::default()
+        };
+        resistant
+            .step(step)
+            .expect("resistant shear fixture must solve");
+        compliant
+            .step(step)
+            .expect("compliant shear fixture must solve");
+
+        let resistant_error = resistant.max_shear_error();
+        let compliant_error = compliant.max_shear_error();
+        assert!(compliant_error > 0.01);
+        assert!(resistant_error < compliant_error * 0.25);
     }
 
     #[test]
@@ -990,6 +1098,21 @@ mod tests {
 
         assert_eq!(error, ClothError::InvalidColliderAxis);
         assert_eq!(cloth.state_fingerprint(), fingerprint);
+    }
+
+    #[test]
+    fn invalid_shear_compliance_is_rejected() {
+        let error = Cloth::rectangular(RectangularClothConfig {
+            columns: 2,
+            rows: 2,
+            spacing: 0.2,
+            particle_mass: 1.0,
+            stretch_compliance: 0.0,
+            shear_compliance: -1.0,
+        })
+        .expect_err("negative shear compliance must be rejected");
+
+        assert_eq!(error, ClothError::InvalidCompliance);
     }
 
     #[test]
