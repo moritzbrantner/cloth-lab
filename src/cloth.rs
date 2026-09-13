@@ -18,6 +18,7 @@ pub enum ClothError {
     InvalidSolverIterations,
     InvalidVelocityDamping,
     InvalidColliderCenter,
+    InvalidColliderAxis,
     InvalidColliderRadius,
     InvalidCollisionThickness,
 }
@@ -36,6 +37,9 @@ impl fmt::Display for ClothError {
             Self::InvalidSolverIterations => "solver iteration count must be positive",
             Self::InvalidVelocityDamping => "velocity damping must be finite and between 0 and 1",
             Self::InvalidColliderCenter => "collider center must contain only finite components",
+            Self::InvalidColliderAxis => {
+                "capsule endpoints must be finite and define a non-degenerate axis"
+            }
             Self::InvalidColliderRadius => "collider radius must be finite and positive",
             Self::InvalidCollisionThickness => {
                 "collision thickness must be finite, non-negative, and produce a finite shell"
@@ -128,8 +132,24 @@ impl SphereCollider {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CapsuleCollider {
+    pub start: Vec3,
+    pub end: Vec3,
+    pub radius: f64,
+    pub thickness: f64,
+}
+
+impl CapsuleCollider {
+    #[must_use]
+    pub fn effective_radius(self) -> f64 {
+        self.radius + self.thickness
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ClothCollider {
     Sphere(SphereCollider),
+    Capsule(CapsuleCollider),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -392,6 +412,7 @@ fn validate_colliders(colliders: &[ClothCollider]) -> Result<(), ClothError> {
     for collider in colliders {
         match collider {
             ClothCollider::Sphere(sphere) => validate_sphere_collider(*sphere)?,
+            ClothCollider::Capsule(capsule) => validate_capsule_collider(*capsule)?,
         }
     }
     Ok(())
@@ -401,13 +422,25 @@ fn validate_sphere_collider(collider: SphereCollider) -> Result<(), ClothError> 
     if !collider.center.is_finite() {
         return Err(ClothError::InvalidColliderCenter);
     }
-    if !collider.radius.is_finite() || collider.radius <= 0.0 {
+    validate_radius_and_thickness(collider.radius, collider.thickness)
+}
+
+fn validate_capsule_collider(collider: CapsuleCollider) -> Result<(), ClothError> {
+    let axis = collider.end - collider.start;
+    if !collider.start.is_finite()
+        || !collider.end.is_finite()
+        || axis.length_squared() <= f64::EPSILON
+    {
+        return Err(ClothError::InvalidColliderAxis);
+    }
+    validate_radius_and_thickness(collider.radius, collider.thickness)
+}
+
+fn validate_radius_and_thickness(radius: f64, thickness: f64) -> Result<(), ClothError> {
+    if !radius.is_finite() || radius <= 0.0 {
         return Err(ClothError::InvalidColliderRadius);
     }
-    if !collider.thickness.is_finite()
-        || collider.thickness < 0.0
-        || !collider.effective_radius().is_finite()
-    {
+    if !thickness.is_finite() || thickness < 0.0 || !(radius + thickness).is_finite() {
         return Err(ClothError::InvalidCollisionThickness);
     }
     Ok(())
@@ -449,6 +482,7 @@ fn solve_collisions(particles: &mut [Particle], colliders: &[ClothCollider]) -> 
         for collider in colliders {
             let projected = match collider {
                 ClothCollider::Sphere(sphere) => solve_sphere_collision(particle, *sphere),
+                ClothCollider::Capsule(capsule) => solve_capsule_collision(particle, *capsule),
             };
             projections += usize::from(projected);
         }
@@ -481,8 +515,7 @@ fn solve_sphere_collision(particle: &mut Particle, collider: SphereCollider) -> 
         return false;
     }
 
-    let projection =
-        start_delta.x * movement.x + start_delta.y * movement.y + start_delta.z * movement.z;
+    let projection = dot(start_delta, movement);
     let constant = start_distance_squared - radius_squared;
     let discriminant = projection * projection - movement_squared * constant;
     if discriminant < 0.0 {
@@ -501,6 +534,155 @@ fn solve_sphere_collision(particle: &mut Particle, collider: SphereCollider) -> 
     true
 }
 
+fn solve_capsule_collision(particle: &mut Particle, collider: CapsuleCollider) -> bool {
+    let effective_radius = collider.effective_radius();
+    let radius_squared = effective_radius * effective_radius;
+    let axis = collider.end - collider.start;
+    let current_axis_point = closest_point_on_segment(particle.position, collider.start, collider.end);
+    let current_delta = particle.position - current_axis_point;
+
+    if current_delta.length_squared() < radius_squared {
+        let previous_axis_point =
+            closest_point_on_segment(particle.previous_position, collider.start, collider.end);
+        let previous_delta = particle.previous_position - previous_axis_point;
+        let normal = capsule_collision_normal(current_delta, previous_delta, axis);
+        particle.position = current_axis_point + normal * effective_radius;
+        return true;
+    }
+
+    let movement = particle.position - particle.previous_position;
+    if movement.length_squared() <= f64::EPSILON {
+        return false;
+    }
+
+    let start_axis_point =
+        closest_point_on_segment(particle.previous_position, collider.start, collider.end);
+    let start_delta = particle.previous_position - start_axis_point;
+    if start_delta.length_squared() <= radius_squared {
+        return false;
+    }
+
+    let (closest_fraction, closest_distance_squared) = closest_path_fraction_to_segment(
+        particle.previous_position,
+        particle.position,
+        collider.start,
+        collider.end,
+    );
+    if closest_distance_squared > radius_squared || closest_fraction <= f64::EPSILON {
+        return false;
+    }
+
+    let mut outside_fraction = 0.0;
+    let mut inside_fraction = closest_fraction;
+    for _ in 0..48 {
+        let candidate_fraction = (outside_fraction + inside_fraction) * 0.5;
+        let candidate = particle.previous_position + movement * candidate_fraction;
+        let candidate_axis_point = closest_point_on_segment(candidate, collider.start, collider.end);
+        let distance_squared = (candidate - candidate_axis_point).length_squared();
+        if distance_squared > radius_squared {
+            outside_fraction = candidate_fraction;
+        } else {
+            inside_fraction = candidate_fraction;
+        }
+    }
+
+    let hit = particle.previous_position + movement * inside_fraction;
+    let hit_axis_point = closest_point_on_segment(hit, collider.start, collider.end);
+    let hit_delta = hit - hit_axis_point;
+    let normal = capsule_collision_normal(hit_delta, start_delta, axis);
+    particle.position = hit_axis_point + normal * effective_radius;
+    true
+}
+
+fn closest_point_on_segment(point: Vec3, start: Vec3, end: Vec3) -> Vec3 {
+    let segment = end - start;
+    let segment_length_squared = segment.length_squared();
+    debug_assert!(segment_length_squared > f64::EPSILON);
+    let fraction = (dot(point - start, segment) / segment_length_squared).clamp(0.0, 1.0);
+    start + segment * fraction
+}
+
+fn closest_path_fraction_to_segment(
+    path_start: Vec3,
+    path_end: Vec3,
+    segment_start: Vec3,
+    segment_end: Vec3,
+) -> (f64, f64) {
+    let path = path_end - path_start;
+    let segment = segment_end - segment_start;
+    let offset = path_start - segment_start;
+    let path_length_squared = dot(path, path);
+    let segment_projection = dot(path, segment);
+    let segment_length_squared = dot(segment, segment);
+    let path_offset_projection = dot(path, offset);
+    let segment_offset_projection = dot(segment, offset);
+    let denominator =
+        path_length_squared * segment_length_squared - segment_projection * segment_projection;
+
+    let mut path_numerator;
+    let mut path_denominator = denominator;
+    let mut segment_numerator;
+    let mut segment_denominator = denominator;
+
+    if denominator <= f64::EPSILON {
+        path_numerator = 0.0;
+        path_denominator = 1.0;
+        segment_numerator = segment_offset_projection;
+        segment_denominator = segment_length_squared;
+    } else {
+        path_numerator = segment_projection * segment_offset_projection
+            - segment_length_squared * path_offset_projection;
+        segment_numerator = path_length_squared * segment_offset_projection
+            - segment_projection * path_offset_projection;
+
+        if path_numerator < 0.0 {
+            path_numerator = 0.0;
+            segment_numerator = segment_offset_projection;
+            segment_denominator = segment_length_squared;
+        } else if path_numerator > path_denominator {
+            path_numerator = path_denominator;
+            segment_numerator = segment_offset_projection + segment_projection;
+            segment_denominator = segment_length_squared;
+        }
+    }
+
+    if segment_numerator < 0.0 {
+        segment_numerator = 0.0;
+        if -path_offset_projection < 0.0 {
+            path_numerator = 0.0;
+        } else if -path_offset_projection > path_length_squared {
+            path_numerator = path_denominator;
+        } else {
+            path_numerator = -path_offset_projection;
+            path_denominator = path_length_squared;
+        }
+    } else if segment_numerator > segment_denominator {
+        segment_numerator = segment_denominator;
+        let end_projection = -path_offset_projection + segment_projection;
+        if end_projection < 0.0 {
+            path_numerator = 0.0;
+        } else if end_projection > path_length_squared {
+            path_numerator = path_denominator;
+        } else {
+            path_numerator = end_projection;
+            path_denominator = path_length_squared;
+        }
+    }
+
+    let path_fraction = if path_numerator.abs() <= f64::EPSILON {
+        0.0
+    } else {
+        path_numerator / path_denominator
+    };
+    let segment_fraction = if segment_numerator.abs() <= f64::EPSILON {
+        0.0
+    } else {
+        segment_numerator / segment_denominator
+    };
+    let separation = offset + path * path_fraction - segment * segment_fraction;
+    (path_fraction, separation.length_squared())
+}
+
 fn collision_normal(primary: Vec3, fallback: Vec3) -> Vec3 {
     let primary_length = primary.length();
     if primary_length > f64::EPSILON {
@@ -513,6 +695,38 @@ fn collision_normal(primary: Vec3, fallback: Vec3) -> Vec3 {
     }
 
     Vec3::new(0.0, 1.0, 0.0)
+}
+
+fn capsule_collision_normal(primary: Vec3, fallback: Vec3, axis: Vec3) -> Vec3 {
+    let primary_length = primary.length();
+    if primary_length > f64::EPSILON {
+        return primary / primary_length;
+    }
+
+    let fallback_length = fallback.length();
+    if fallback_length > f64::EPSILON {
+        return fallback / fallback_length;
+    }
+
+    deterministic_perpendicular(axis)
+}
+
+fn deterministic_perpendicular(axis: Vec3) -> Vec3 {
+    let absolute_x = axis.x.abs();
+    let absolute_y = axis.y.abs();
+    let absolute_z = axis.z.abs();
+    let perpendicular = if absolute_x <= absolute_y && absolute_x <= absolute_z {
+        Vec3::new(0.0, -axis.z, axis.y)
+    } else if absolute_y <= absolute_z {
+        Vec3::new(-axis.z, 0.0, axis.x)
+    } else {
+        Vec3::new(-axis.y, axis.x, 0.0)
+    };
+    perpendicular / perpendicular.length()
+}
+
+fn dot(left: Vec3, right: Vec3) -> f64 {
+    left.x * right.x + left.y * right.y + left.z * right.z
 }
 
 fn two_mut<T>(slice: &mut [T], first: usize, second: usize) -> (&mut T, &mut T) {
@@ -556,6 +770,15 @@ mod tests {
         ClothCollider::Sphere(SphereCollider {
             center: Vec3::new(0.5, -0.5, 0.5),
             radius: 0.35,
+            thickness: 0.02,
+        })
+    }
+
+    fn capsule_fixture() -> ClothCollider {
+        ClothCollider::Capsule(CapsuleCollider {
+            start: Vec3::new(0.2, -0.5, 0.5),
+            end: Vec3::new(0.8, -0.5, 0.5),
+            radius: 0.3,
             thickness: 0.02,
         })
     }
@@ -642,7 +865,9 @@ mod tests {
         assert!(observed_collision);
         assert_eq!(first.particles(), second.particles());
 
-        let ClothCollider::Sphere(sphere) = collider;
+        let ClothCollider::Sphere(sphere) = collider else {
+            unreachable!("sphere fixture must contain a sphere")
+        };
         let minimum_distance = sphere.effective_radius() - 1.0e-9;
         for particle in first
             .particles()
@@ -650,6 +875,41 @@ mod tests {
             .filter(|particle| !particle.is_pinned())
         {
             assert!((particle.position() - sphere.center).length() >= minimum_distance);
+        }
+    }
+
+    #[test]
+    fn capsule_collision_preserves_shell_and_replay() {
+        let collider = capsule_fixture();
+        let mut first = cloth_fixture();
+        let mut second = cloth_fixture();
+        let mut observed_collision = false;
+
+        for _ in 0..240 {
+            let first_report = first
+                .step_with_colliders(FixedStepConfig::default(), &[collider])
+                .expect("capsule collision step must remain valid");
+            let second_report = second
+                .step_with_colliders(FixedStepConfig::default(), &[collider])
+                .expect("replayed capsule collision step must remain valid");
+            assert_eq!(first_report, second_report);
+            observed_collision |= first_report.collision_projections > 0;
+        }
+
+        assert!(observed_collision);
+        assert_eq!(first.particles(), second.particles());
+
+        let ClothCollider::Capsule(capsule) = collider else {
+            unreachable!("capsule fixture must contain a capsule")
+        };
+        let minimum_distance = capsule.effective_radius() - 1.0e-9;
+        for particle in first
+            .particles()
+            .iter()
+            .filter(|particle| !particle.is_pinned())
+        {
+            let axis_point = closest_point_on_segment(particle.position(), capsule.start, capsule.end);
+            assert!((particle.position() - axis_point).length() >= minimum_distance);
         }
     }
 
@@ -673,6 +933,26 @@ mod tests {
     }
 
     #[test]
+    fn swept_capsule_collision_blocks_tunneling() {
+        let collider = CapsuleCollider {
+            start: Vec3::new(0.0, -0.5, 0.0),
+            end: Vec3::new(0.0, 0.5, 0.0),
+            radius: 0.25,
+            thickness: 0.05,
+        };
+        let mut particle = Particle {
+            position: Vec3::new(1.0, 0.0, 0.0),
+            previous_position: Vec3::new(-1.0, 0.0, 0.0),
+            inverse_mass: 1.0,
+        };
+
+        assert!(solve_capsule_collision(&mut particle, collider));
+        assert!((particle.position.x + collider.effective_radius()).abs() < 1.0e-10);
+        assert!(particle.position.y.abs() < 1.0e-10);
+        assert!(particle.position.z.abs() < 1.0e-10);
+    }
+
+    #[test]
     fn invalid_collider_fails_closed_before_advancing() {
         let mut cloth = cloth_fixture();
         let fingerprint = cloth.state_fingerprint();
@@ -687,6 +967,25 @@ mod tests {
             .expect_err("negative collision thickness must be rejected");
 
         assert_eq!(error, ClothError::InvalidCollisionThickness);
+        assert_eq!(cloth.state_fingerprint(), fingerprint);
+    }
+
+    #[test]
+    fn invalid_capsule_axis_fails_closed_before_advancing() {
+        let mut cloth = cloth_fixture();
+        let fingerprint = cloth.state_fingerprint();
+        let invalid = ClothCollider::Capsule(CapsuleCollider {
+            start: Vec3::ZERO,
+            end: Vec3::ZERO,
+            radius: 0.5,
+            thickness: 0.0,
+        });
+
+        let error = cloth
+            .step_with_colliders(FixedStepConfig::default(), &[invalid])
+            .expect_err("degenerate capsule axis must be rejected");
+
+        assert_eq!(error, ClothError::InvalidColliderAxis);
         assert_eq!(cloth.state_fingerprint(), fingerprint);
     }
 
