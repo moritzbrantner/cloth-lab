@@ -47,7 +47,7 @@ struct PresetEvidence {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cloth = Cloth::rectangular(DEMO_PARAMETERS.rectangular_config(
-        COLUMNS, COLUMNS.min(ROWS), SPACING, 1.0,
+        COLUMNS, ROWS, SPACING, 1.0,
     ))?;
     cloth.pin_top_corners()?;
 
