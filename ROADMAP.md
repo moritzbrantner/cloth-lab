@@ -30,7 +30,7 @@
 - Separate solver parameters from named material presets.
 - Establish measurable cotton-, denim-, silk-, and leather-like qualitative fixtures without claiming real-world material accuracy prematurely.
 
-**Progress:** shear resistance is implemented as a separate deterministic XPBD constraint family with two diagonals per quad, independent compliance, replay evidence, and maximum shear-error reporting. Bending, friction, and material presets remain.
+**Progress:** shear resistance and mesh-general isometric bending are implemented as separate deterministic XPBD constraint families with independent compliance and error evidence. Bending stencils are derived from shared triangle edges rather than rectangular-grid shortcuts. Cloth/rigid friction and named material presets remain.
 
 ## 4. Self-collision
 
