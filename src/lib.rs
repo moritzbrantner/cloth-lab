@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod cloth;
+mod material;
 mod math;
 
 pub use cloth::{
@@ -13,4 +14,5 @@ pub use cloth::{
     DistanceConstraint, FixedStepConfig, Particle, RectangularClothConfig, SphereCollider,
     StepReport,
 };
+pub use material::{TextileParameters, TextilePreset};
 pub use math::Vec3;
