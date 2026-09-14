@@ -742,10 +742,7 @@ fn solve_bending_constraint(
     }
     constraint.lambda += delta_lambda;
 
-    for ((index, gradient), inverse_mass) in indices
-        .into_iter()
-        .zip(gradients)
-        .zip(inverse_masses)
+    for ((index, gradient), inverse_mass) in indices.into_iter().zip(gradients).zip(inverse_masses)
     {
         particles[index].position += gradient * (inverse_mass * delta_lambda);
     }
