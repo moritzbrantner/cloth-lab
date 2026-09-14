@@ -1,7 +1,7 @@
 use core::fmt;
 use std::collections::BTreeSet;
 
-use spatial_kernels::{Aabb, Axis3, Body, BroadPhase, NaiveBroadPhase, SweepAndPruneBroadPhase};
+use spatial_kernels::{Aabb, Axis3, Body, BroadPhase, SweepAndPruneBroadPhase};
 
 use crate::Vec3;
 
@@ -31,11 +31,15 @@ impl fmt::Display for SelfCollisionError {
             Self::InvalidInverseMass => {
                 "self-collision inverse masses must be finite and non-negative"
             }
-            Self::InvalidTriangleIndex => "self-collision triangle index is outside the particle set",
+            Self::InvalidTriangleIndex => {
+                "self-collision triangle index is outside the particle set"
+            }
             Self::DuplicateTriangleVertex => {
                 "self-collision triangles must contain three distinct particle indices"
             }
-            Self::TopologyTooLarge => "self-collision topology must fit into shared u32 collider IDs",
+            Self::TopologyTooLarge => {
+                "self-collision topology must fit into shared u32 collider IDs"
+            }
             Self::BroadPhaseRangeExceeded => {
                 "self-collision bounds must fit into the shared f32 broad-phase representation"
             }
@@ -137,7 +141,11 @@ fn validate_inputs(
         if !particle.inverse_mass.is_finite() || particle.inverse_mass < 0.0 {
             return Err(SelfCollisionError::InvalidInverseMass);
         }
-        for coordinate in [particle.position.x, particle.position.y, particle.position.z] {
+        for coordinate in [
+            particle.position.x,
+            particle.position.y,
+            particle.position.z,
+        ] {
             if coordinate.abs() + config.thickness > broad_phase_limit {
                 return Err(SelfCollisionError::BroadPhaseRangeExceeded);
             }
@@ -215,7 +223,7 @@ fn upper_f32(value: f64) -> f32 {
 }
 
 fn next_down(value: f32) -> f32 {
-    if value == 0.0 {
+    if value.to_bits() & 0x7fff_ffff == 0 {
         return -f32::from_bits(1);
     }
     if value > 0.0 {
@@ -226,7 +234,7 @@ fn next_down(value: f32) -> f32 {
 }
 
 fn next_up(value: f32) -> f32 {
-    if value == 0.0 {
+    if value.to_bits() & 0x7fff_ffff == 0 {
         return f32::from_bits(1);
     }
     if value > 0.0 {
@@ -486,6 +494,7 @@ fn dot(left: Vec3, right: Vec3) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spatial_kernels::NaiveBroadPhase;
 
     fn fixture() -> (Vec<SelfCollisionParticle>, Vec<[usize; 3]>) {
         (
