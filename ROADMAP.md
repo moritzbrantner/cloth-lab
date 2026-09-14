@@ -39,6 +39,8 @@
 - Exclude adjacent mesh features deterministically.
 - Stress folding, inversion, and dense-contact cases.
 
+**Progress:** the first self-collision kernel slice is implemented independently of the main cloth step loop. It uses explicit positive thickness, the pinned `rust-kernels` sweep-and-prune broad phase already exercised by `collision-lab`, conservative f32 AABBs for candidate generation, f64 vertex/triangle narrow phase, inverse-mass-weighted projection, deterministic one-ring mesh exclusions, and degenerate-triangle fallbacks. The next slice wires this proven kernel into every cloth solver iteration and adds folding/inversion stress fixtures before broader self-collision optimization.
+
 ## 5. Garments
 
 - Support attachment constraints to animated bodies.
