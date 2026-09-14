@@ -197,7 +197,7 @@ function drawFrame() {
   }
 
   slider.value = String(frameIndex);
-  status.textContent = `step ${frame.step} · fingerprint ${frame.fingerprint} · stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · bend ${frame.maxBendingError.toExponential(2)} · collision projections ${frame.collisionProjections}`;
+  status.textContent = `step ${frame.step} · fingerprint ${frame.fingerprint} · stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · bend ${frame.maxBendingError.toExponential(2)} · contacts ${frame.collisionProjections} · friction ${frame.frictionCorrections}`;
 }
 
 function tick(timestamp) {
@@ -251,11 +251,17 @@ fetch("frames.json")
     ) {
       throw new Error("snapshot payload has no capsule collider metadata");
     }
+    if (!Number.isFinite(data.frictionCoefficient)) {
+      throw new Error("snapshot payload has no friction coefficient evidence");
+    }
     if (!data.frames.every((frame) => Number.isFinite(frame.maxShearError))) {
       throw new Error("snapshot payload has no shear error evidence");
     }
     if (!data.frames.every((frame) => Number.isFinite(frame.maxBendingError))) {
       throw new Error("snapshot payload has no bending error evidence");
+    }
+    if (!data.frames.every((frame) => Number.isInteger(frame.frictionCorrections))) {
+      throw new Error("snapshot payload has no friction correction evidence");
     }
 
     snapshots = data;
