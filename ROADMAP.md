@@ -30,7 +30,7 @@
 - Separate solver parameters from named material presets.
 - Establish measurable cotton-, denim-, silk-, and leather-like qualitative fixtures without claiming real-world material accuracy prematurely.
 
-**Progress:** shear resistance, mesh-general isometric bending, and deterministic cloth/rigid contact friction are implemented independently. Contact friction uses an explicit raw coefficient, preserves the zero-friction collision path, and bounds tangential velocity correction by the normal contact projection in the same Coulomb-style spirit as `physics-engine`. Named material presets and their qualitative fixtures remain.
+**Status:** complete for the initial qualitative textile scope. Stretch, shear, mesh-general isometric bending, and deterministic cloth/rigid contact friction remain independent raw solver/contact parameters. `TextilePreset` maps cotton-, denim-, silk-, and leather-like names onto those raw parameters while topology, spacing, and particle mass remain explicit. Deterministic fixtures record per-preset fingerprints, sag position, constraint errors, collision projections, and friction corrections. These presets are comparison fixtures, not calibrated real-world material models.
 
 ## 4. Self-collision
 

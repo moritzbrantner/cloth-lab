@@ -197,7 +197,7 @@ function drawFrame() {
   }
 
   slider.value = String(frameIndex);
-  status.textContent = `step ${frame.step} · fingerprint ${frame.fingerprint} · stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · bend ${frame.maxBendingError.toExponential(2)} · contacts ${frame.collisionProjections} · friction ${frame.frictionCorrections}`;
+  status.textContent = `${snapshots.materialPreset} · step ${frame.step} · fingerprint ${frame.fingerprint} · stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · bend ${frame.maxBendingError.toExponential(2)} · contacts ${frame.collisionProjections} · friction ${frame.frictionCorrections}`;
 }
 
 function tick(timestamp) {
@@ -251,8 +251,34 @@ fetch("frames.json")
     ) {
       throw new Error("snapshot payload has no capsule collider metadata");
     }
-    if (!Number.isFinite(data.frictionCoefficient)) {
-      throw new Error("snapshot payload has no friction coefficient evidence");
+    if (typeof data.materialPreset !== "string" || data.materialPreset.length === 0) {
+      throw new Error("snapshot payload has no material preset evidence");
+    }
+    if (
+      !data.materialParameters ||
+      !Number.isFinite(data.materialParameters.stretchCompliance) ||
+      !Number.isFinite(data.materialParameters.shearCompliance) ||
+      !Number.isFinite(data.materialParameters.bendingCompliance) ||
+      !Number.isFinite(data.materialParameters.frictionCoefficient)
+    ) {
+      throw new Error("snapshot payload has no raw material parameter evidence");
+    }
+    if (!Array.isArray(data.presetSummaries) || data.presetSummaries.length !== 4) {
+      throw new Error("snapshot payload has no four-preset qualitative evidence");
+    }
+    if (
+      !data.presetSummaries.every(
+        (summary) =>
+          typeof summary.name === "string" &&
+          Number.isFinite(summary.bottomMiddleY) &&
+          Number.isFinite(summary.maxStretchError) &&
+          Number.isFinite(summary.maxShearError) &&
+          Number.isFinite(summary.maxBendingError) &&
+          Number.isInteger(summary.collisionProjections) &&
+          Number.isInteger(summary.frictionCorrections),
+      )
+    ) {
+      throw new Error("snapshot payload has invalid material fixture evidence");
     }
     if (!data.frames.every((frame) => Number.isFinite(frame.maxShearError))) {
       throw new Error("snapshot payload has no shear error evidence");
