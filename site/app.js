@@ -280,6 +280,19 @@ fetch("frames.json")
     ) {
       throw new Error("snapshot payload has invalid material fixture evidence");
     }
+    if (
+      !data.selfCollisionFixture ||
+      !Number.isFinite(data.selfCollisionFixture.thickness) ||
+      !Number.isFinite(data.selfCollisionFixture.outputY) ||
+      !Number.isInteger(data.selfCollisionFixture.broadPhasePairs) ||
+      !Number.isInteger(data.selfCollisionFixture.vertexTriangleCandidates) ||
+      !Number.isInteger(data.selfCollisionFixture.adjacencyExclusions) ||
+      !Number.isInteger(data.selfCollisionFixture.narrowPhaseTests) ||
+      data.selfCollisionFixture.projections !== 1 ||
+      Math.abs(data.selfCollisionFixture.outputY - data.selfCollisionFixture.thickness) > 1e-10
+    ) {
+      throw new Error("snapshot payload has invalid vertex-triangle self-collision evidence");
+    }
     if (!data.frames.every((frame) => Number.isFinite(frame.maxShearError))) {
       throw new Error("snapshot payload has no shear error evidence");
     }
