@@ -10,6 +10,9 @@ description = "Deterministic cloth and textile simulation experiments"
 name = "cloth_lab"
 path = "src/lib.rs"
 
+[dependencies]
+spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "980091094a9826167a98b96781126595fbea5076" }
+
 [lints.rust]
 unsafe_code = "forbid"
 

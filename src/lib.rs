@@ -8,6 +8,7 @@
 mod cloth;
 mod material;
 mod math;
+mod self_collision;
 
 pub use cloth::{
     BendingConstraint, CapsuleCollider, Cloth, ClothCollider, ClothError, ContactConfig,
@@ -16,3 +17,7 @@ pub use cloth::{
 };
 pub use material::{TextileParameters, TextilePreset};
 pub use math::Vec3;
+pub use self_collision::{
+    SelfCollisionConfig, SelfCollisionError, SelfCollisionParticle, SelfCollisionReport,
+    solve_vertex_triangle_self_collision,
+};

@@ -5,3 +5,11 @@ version = 4
 [[package]]
 name = "cloth-lab"
 version = "0.1.0"
+dependencies = [
+ "spatial-kernels",
+]
+
+[[package]]
+name = "spatial-kernels"
+version = "0.1.0"
+source = "git+https://github.com/moritzbrantner/rust-kernels?rev=980091094a9826167a98b96781126595fbea5076#980091094a9826167a98b96781126595fbea5076"
