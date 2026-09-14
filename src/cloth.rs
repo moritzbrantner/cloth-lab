@@ -304,11 +304,8 @@ impl Cloth {
             }
         }
 
-        let bending_constraints = build_bending_constraints(
-            &particles,
-            &triangles,
-            config.bending_compliance,
-        )?;
+        let bending_constraints =
+            build_bending_constraints(&particles, &triangles, config.bending_compliance)?;
 
         Ok(Self {
             columns: config.columns,
@@ -548,17 +545,12 @@ fn init_isometric_bending_matrix(
     }
 
     let coefficient = -3.0 / (2.0 * area_sum);
-    let k = [
-        c03 + c04,
-        c01 + c02,
-        -c01 - c03,
-        -c02 - c04,
-    ];
+    let k = [c03 + c04, c01 + c02, -c01 - c03, -c02 - c04];
     let mut q = [[0.0; 4]; 4];
-    for row in 0..4 {
-        for column in 0..4 {
-            q[row][column] = k[row] * coefficient * k[column];
-            if !q[row][column].is_finite() {
+    for (row, q_row) in q.iter_mut().enumerate() {
+        for (column, value) in q_row.iter_mut().enumerate() {
+            *value = k[row] * coefficient * k[column];
+            if !value.is_finite() {
                 return None;
             }
         }
@@ -599,9 +591,9 @@ fn bending_constraint_value(particles: &[Particle], constraint: &BendingConstrai
 
 fn bending_energy(positions: &[Vec3; 4], q: &[[f64; 4]; 4]) -> f64 {
     let mut energy = 0.0;
-    for row in 0..4 {
-        for column in 0..4 {
-            energy += q[row][column] * dot(positions[column], positions[row]);
+    for (row, q_row) in q.iter().enumerate() {
+        for (column, coefficient) in q_row.iter().copied().enumerate() {
+            energy += coefficient * dot(positions[column], positions[row]);
         }
     }
     energy * 0.5
@@ -727,17 +719,19 @@ fn solve_bending_constraint(
     let energy = bending_energy(&positions, &constraint.q);
 
     let mut gradients = [Vec3::ZERO; 4];
-    for row in 0..4 {
-        for column in 0..4 {
-            gradients[row] += positions[column] * constraint.q[row][column];
+    for (row, gradient) in gradients.iter_mut().enumerate() {
+        for (column, position) in positions.iter().copied().enumerate() {
+            *gradient += position * constraint.q[row][column];
         }
     }
 
     let alpha = constraint.compliance / (delta_seconds * delta_seconds);
-    let mut denominator = alpha;
-    for index in 0..4 {
-        denominator += inverse_masses[index] * gradients[index].length_squared();
-    }
+    let denominator = gradients
+        .iter()
+        .zip(inverse_masses)
+        .fold(alpha, |sum, (gradient, inverse_mass)| {
+            sum + inverse_mass * gradient.length_squared()
+        });
     if !denominator.is_finite() || denominator <= f64::EPSILON {
         return;
     }
@@ -748,9 +742,12 @@ fn solve_bending_constraint(
     }
     constraint.lambda += delta_lambda;
 
-    for index in 0..4 {
-        let correction = gradients[index] * (inverse_masses[index] * delta_lambda);
-        particles[indices[index]].position += correction;
+    for ((index, gradient), inverse_mass) in indices
+        .into_iter()
+        .zip(gradients)
+        .zip(inverse_masses)
+    {
+        particles[index].position += gradient * (inverse_mass * delta_lambda);
     }
 }
 
@@ -1120,10 +1117,7 @@ mod tests {
         assert_eq!(cloth.shear_constraints()[49].particle_a, 29);
         assert_eq!(cloth.shear_constraints()[49].particle_b, 34);
         let first_bend = cloth.bending_constraints()[0];
-        assert_eq!(
-            (first_bend.opposite_a, first_bend.opposite_b),
-            (0, 7)
-        );
+        assert_eq!((first_bend.opposite_a, first_bend.opposite_b), (0, 7));
         assert_eq!((first_bend.edge_a, first_bend.edge_b), (6, 1));
         let last_bend = cloth.bending_constraints()[64];
         assert_eq!((last_bend.opposite_a, last_bend.opposite_b), (28, 35));
