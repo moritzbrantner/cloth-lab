@@ -1,4 +1,5 @@
 use core::fmt;
+use std::collections::BTreeMap;
 
 use crate::Vec3;
 
@@ -21,6 +22,7 @@ pub enum ClothError {
     InvalidColliderAxis,
     InvalidColliderRadius,
     InvalidCollisionThickness,
+    DegenerateBendingStencil,
 }
 
 impl fmt::Display for ClothError {
@@ -43,6 +45,9 @@ impl fmt::Display for ClothError {
             Self::InvalidColliderRadius => "collider radius must be finite and positive",
             Self::InvalidCollisionThickness => {
                 "collision thickness must be finite, non-negative, and produce a finite shell"
+            }
+            Self::DegenerateBendingStencil => {
+                "cloth bending stencil must be finite and contain two non-degenerate triangles"
             }
         };
         formatter.write_str(message)
@@ -90,6 +95,17 @@ pub struct DistanceConstraint {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BendingConstraint {
+    pub opposite_a: usize,
+    pub opposite_b: usize,
+    pub edge_a: usize,
+    pub edge_b: usize,
+    pub compliance: f64,
+    q: [[f64; 4]; 4],
+    lambda: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RectangularClothConfig {
     pub columns: usize,
     pub rows: usize,
@@ -97,6 +113,7 @@ pub struct RectangularClothConfig {
     pub particle_mass: f64,
     pub stretch_compliance: f64,
     pub shear_compliance: f64,
+    pub bending_compliance: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -157,6 +174,7 @@ pub enum ClothCollider {
 pub struct StepReport {
     pub max_stretch_error: f64,
     pub max_shear_error: f64,
+    pub max_bending_error: f64,
     pub state_fingerprint: u64,
     pub collision_projections: usize,
 }
@@ -169,6 +187,14 @@ pub struct Cloth {
     triangles: Vec<[usize; 3]>,
     stretch_constraints: Vec<DistanceConstraint>,
     shear_constraints: Vec<DistanceConstraint>,
+    bending_constraints: Vec<BendingConstraint>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PendingBendingEdge {
+    start: usize,
+    end: usize,
+    opposite: usize,
 }
 
 impl Cloth {
@@ -278,6 +304,9 @@ impl Cloth {
             }
         }
 
+        let bending_constraints =
+            build_bending_constraints(&particles, &triangles, config.bending_compliance)?;
+
         Ok(Self {
             columns: config.columns,
             rows: config.rows,
@@ -285,6 +314,7 @@ impl Cloth {
             triangles,
             stretch_constraints,
             shear_constraints,
+            bending_constraints,
         })
     }
 
@@ -316,6 +346,11 @@ impl Cloth {
     #[must_use]
     pub fn shear_constraints(&self) -> &[DistanceConstraint] {
         &self.shear_constraints
+    }
+
+    #[must_use]
+    pub fn bending_constraints(&self) -> &[BendingConstraint] {
+        &self.bending_constraints
     }
 
     pub fn pin(&mut self, particle_index: usize) -> Result<(), ClothError> {
@@ -365,6 +400,9 @@ impl Cloth {
         for constraint in &mut self.shear_constraints {
             constraint.lambda = 0.0;
         }
+        for constraint in &mut self.bending_constraints {
+            constraint.lambda = 0.0;
+        }
 
         let mut collision_projections = 0;
         for _ in 0..config.solver_iterations {
@@ -375,12 +413,16 @@ impl Cloth {
             for constraint in &mut self.shear_constraints {
                 solve_distance_constraint(particles, constraint, config.delta_seconds);
             }
+            for constraint in &mut self.bending_constraints {
+                solve_bending_constraint(particles, constraint, config.delta_seconds);
+            }
             collision_projections += solve_collisions(particles, colliders);
         }
 
         Ok(StepReport {
             max_stretch_error: self.max_stretch_error(),
             max_shear_error: self.max_shear_error(),
+            max_bending_error: self.max_bending_error(),
             state_fingerprint: self.state_fingerprint(),
             collision_projections,
         })
@@ -394,6 +436,14 @@ impl Cloth {
     #[must_use]
     pub fn max_shear_error(&self) -> f64 {
         max_constraint_error(&self.particles, &self.shear_constraints)
+    }
+
+    #[must_use]
+    pub fn max_bending_error(&self) -> f64 {
+        self.bending_constraints
+            .iter()
+            .map(|constraint| bending_constraint_value(&self.particles, constraint).abs())
+            .fold(0.0, f64::max)
     }
 
     #[must_use]
@@ -418,6 +468,105 @@ impl Cloth {
     }
 }
 
+fn build_bending_constraints(
+    particles: &[Particle],
+    triangles: &[[usize; 3]],
+    compliance: f64,
+) -> Result<Vec<BendingConstraint>, ClothError> {
+    let mut pending = BTreeMap::<(usize, usize), PendingBendingEdge>::new();
+    let mut constraints = Vec::new();
+
+    for triangle in triangles {
+        let [a, b, c] = *triangle;
+        for (start, end, opposite) in [(a, b, c), (b, c, a), (c, a, b)] {
+            let key = if start < end {
+                (start, end)
+            } else {
+                (end, start)
+            };
+
+            if let Some(first) = pending.remove(&key) {
+                debug_assert_eq!((start, end), (first.end, first.start));
+                let q = init_isometric_bending_matrix(
+                    particles[first.opposite].position,
+                    particles[opposite].position,
+                    particles[first.start].position,
+                    particles[first.end].position,
+                )
+                .ok_or(ClothError::DegenerateBendingStencil)?;
+                constraints.push(BendingConstraint {
+                    opposite_a: first.opposite,
+                    opposite_b: opposite,
+                    edge_a: first.start,
+                    edge_b: first.end,
+                    compliance,
+                    q,
+                    lambda: 0.0,
+                });
+            } else {
+                pending.insert(
+                    key,
+                    PendingBendingEdge {
+                        start,
+                        end,
+                        opposite,
+                    },
+                );
+            }
+        }
+    }
+
+    Ok(constraints)
+}
+
+fn init_isometric_bending_matrix(
+    opposite_a: Vec3,
+    opposite_b: Vec3,
+    edge_a: Vec3,
+    edge_b: Vec3,
+) -> Option<[[f64; 4]; 4]> {
+    let x = [edge_a, edge_b, opposite_a, opposite_b];
+    let e0 = x[1] - x[0];
+    let e1 = x[2] - x[0];
+    let e2 = x[3] - x[0];
+    let e3 = x[2] - x[1];
+    let e4 = x[3] - x[1];
+
+    let c01 = cot_theta(e0, e1)?;
+    let c02 = cot_theta(e0, e2)?;
+    let c03 = cot_theta(e0 * -1.0, e3)?;
+    let c04 = cot_theta(e0 * -1.0, e4)?;
+
+    let area_a = 0.5 * cross(e0, e1).length();
+    let area_b = 0.5 * cross(e0, e2).length();
+    let area_sum = area_a + area_b;
+    if !area_sum.is_finite() || area_sum <= f64::EPSILON {
+        return None;
+    }
+
+    let coefficient = -3.0 / (2.0 * area_sum);
+    let k = [c03 + c04, c01 + c02, -c01 - c03, -c02 - c04];
+    let mut q = [[0.0; 4]; 4];
+    for (row, q_row) in q.iter_mut().enumerate() {
+        for (column, value) in q_row.iter_mut().enumerate() {
+            *value = k[row] * coefficient * k[column];
+            if !value.is_finite() {
+                return None;
+            }
+        }
+    }
+    Some(q)
+}
+
+fn cot_theta(left: Vec3, right: Vec3) -> Option<f64> {
+    let cross_length = cross(left, right).length();
+    if !cross_length.is_finite() || cross_length <= f64::EPSILON {
+        return None;
+    }
+    let cotangent = dot(left, right) / cross_length;
+    cotangent.is_finite().then_some(cotangent)
+}
+
 fn max_constraint_error(particles: &[Particle], constraints: &[DistanceConstraint]) -> f64 {
     constraints
         .iter()
@@ -427,6 +576,27 @@ fn max_constraint_error(particles: &[Particle], constraints: &[DistanceConstrain
             (delta.length() - constraint.rest_length).abs()
         })
         .fold(0.0, f64::max)
+}
+
+fn bending_constraint_value(particles: &[Particle], constraint: &BendingConstraint) -> f64 {
+    let indices = [
+        constraint.edge_a,
+        constraint.edge_b,
+        constraint.opposite_a,
+        constraint.opposite_b,
+    ];
+    let positions = indices.map(|index| particles[index].position);
+    bending_energy(&positions, &constraint.q)
+}
+
+fn bending_energy(positions: &[Vec3; 4], q: &[[f64; 4]; 4]) -> f64 {
+    let mut energy = 0.0;
+    for (row, q_row) in q.iter().enumerate() {
+        for (column, coefficient) in q_row.iter().copied().enumerate() {
+            energy += coefficient * dot(positions[column], positions[row]);
+        }
+    }
+    energy * 0.5
 }
 
 fn validate_rectangular_config(config: RectangularClothConfig) -> Result<(), ClothError> {
@@ -439,9 +609,13 @@ fn validate_rectangular_config(config: RectangularClothConfig) -> Result<(), Clo
     if !config.particle_mass.is_finite() || config.particle_mass <= 0.0 {
         return Err(ClothError::InvalidParticleMass);
     }
-    if [config.stretch_compliance, config.shear_compliance]
-        .into_iter()
-        .any(|compliance| !compliance.is_finite() || compliance < 0.0)
+    if [
+        config.stretch_compliance,
+        config.shear_compliance,
+        config.bending_compliance,
+    ]
+    .into_iter()
+    .any(|compliance| !compliance.is_finite() || compliance < 0.0)
     {
         return Err(ClothError::InvalidCompliance);
     }
@@ -527,6 +701,51 @@ fn solve_distance_constraint(
     let normal = delta / length;
     particle_a.position += normal * (particle_a.inverse_mass * delta_lambda);
     particle_b.position -= normal * (particle_b.inverse_mass * delta_lambda);
+}
+
+fn solve_bending_constraint(
+    particles: &mut [Particle],
+    constraint: &mut BendingConstraint,
+    delta_seconds: f64,
+) {
+    let indices = [
+        constraint.edge_a,
+        constraint.edge_b,
+        constraint.opposite_a,
+        constraint.opposite_b,
+    ];
+    let positions = indices.map(|index| particles[index].position);
+    let inverse_masses = indices.map(|index| particles[index].inverse_mass);
+    let energy = bending_energy(&positions, &constraint.q);
+
+    let mut gradients = [Vec3::ZERO; 4];
+    for (row, gradient) in gradients.iter_mut().enumerate() {
+        for (column, position) in positions.iter().copied().enumerate() {
+            *gradient += position * constraint.q[row][column];
+        }
+    }
+
+    let alpha = constraint.compliance / (delta_seconds * delta_seconds);
+    let denominator = gradients
+        .iter()
+        .zip(inverse_masses)
+        .fold(alpha, |sum, (gradient, inverse_mass)| {
+            sum + inverse_mass * gradient.length_squared()
+        });
+    if !denominator.is_finite() || denominator <= f64::EPSILON {
+        return;
+    }
+
+    let delta_lambda = -(energy + alpha * constraint.lambda) / denominator;
+    if !delta_lambda.is_finite() {
+        return;
+    }
+    constraint.lambda += delta_lambda;
+
+    for ((index, gradient), inverse_mass) in indices.into_iter().zip(gradients).zip(inverse_masses)
+    {
+        particles[index].position += gradient * (inverse_mass * delta_lambda);
+    }
 }
 
 fn solve_collisions(particles: &mut [Particle], colliders: &[ClothCollider]) -> usize {
@@ -783,6 +1002,14 @@ fn deterministic_perpendicular(axis: Vec3) -> Vec3 {
     perpendicular / perpendicular.length()
 }
 
+fn cross(left: Vec3, right: Vec3) -> Vec3 {
+    Vec3::new(
+        left.y * right.z - left.z * right.y,
+        left.z * right.x - left.x * right.z,
+        left.x * right.y - left.y * right.x,
+    )
+}
+
 fn dot(left: Vec3, right: Vec3) -> f64 {
     left.x * right.x + left.y * right.y + left.z * right.z
 }
@@ -817,6 +1044,7 @@ mod tests {
             particle_mass: 1.0,
             stretch_compliance: 1.0e-7,
             shear_compliance: 2.5e-7,
+            bending_compliance: 1.0e-3,
         })
         .expect("fixture cloth must be valid");
         cloth
@@ -833,8 +1061,22 @@ mod tests {
             particle_mass: 1.0,
             stretch_compliance: 1.0e3,
             shear_compliance,
+            bending_compliance: 1.0e3,
         })
         .expect("shear fixture must be valid")
+    }
+
+    fn bending_fixture(bending_compliance: f64) -> Cloth {
+        Cloth::rectangular(RectangularClothConfig {
+            columns: 2,
+            rows: 2,
+            spacing: 0.2,
+            particle_mass: 1.0,
+            stretch_compliance: 1.0e3,
+            shear_compliance: 1.0e3,
+            bending_compliance,
+        })
+        .expect("bending fixture must be valid")
     }
 
     fn sphere_fixture() -> ClothCollider {
@@ -862,6 +1104,7 @@ mod tests {
         assert_eq!(cloth.triangles().len(), 50);
         assert_eq!(cloth.stretch_constraints().len(), 60);
         assert_eq!(cloth.shear_constraints().len(), 50);
+        assert_eq!(cloth.bending_constraints().len(), 65);
         assert_eq!(cloth.triangles()[0], [0, 6, 1]);
         assert_eq!(cloth.triangles()[49], [29, 34, 35]);
         assert_eq!(cloth.shear_constraints()[0].particle_a, 0);
@@ -870,6 +1113,12 @@ mod tests {
         assert_eq!(cloth.shear_constraints()[1].particle_b, 6);
         assert_eq!(cloth.shear_constraints()[49].particle_a, 29);
         assert_eq!(cloth.shear_constraints()[49].particle_b, 34);
+        let first_bend = cloth.bending_constraints()[0];
+        assert_eq!((first_bend.opposite_a, first_bend.opposite_b), (0, 7));
+        assert_eq!((first_bend.edge_a, first_bend.edge_b), (6, 1));
+        let last_bend = cloth.bending_constraints()[64];
+        assert_eq!((last_bend.opposite_a, last_bend.opposite_b), (28, 35));
+        assert_eq!((last_bend.edge_a, last_bend.edge_b), (34, 29));
     }
 
     #[test]
@@ -922,6 +1171,7 @@ mod tests {
         assert!(cloth.particles()[bottom_middle].position().y < initial_height - 0.1);
         assert!(cloth.max_stretch_error() < 0.02);
         assert!(cloth.max_shear_error() < 0.03);
+        assert!(cloth.max_bending_error().is_finite());
     }
 
     #[test]
@@ -952,6 +1202,36 @@ mod tests {
         let compliant_error = compliant.max_shear_error();
         assert!(compliant_error > 0.01);
         assert!(resistant_error < compliant_error * 0.25);
+    }
+
+    #[test]
+    fn bending_constraints_reduce_fold_energy() {
+        let mut resistant = bending_fixture(1.0e-8);
+        let mut compliant = bending_fixture(1.0e3);
+        let lifted = 3;
+
+        for cloth in [&mut resistant, &mut compliant] {
+            cloth.particles[lifted].position += Vec3::new(0.0, 0.15, 0.0);
+            cloth.particles[lifted].previous_position = cloth.particles[lifted].position;
+        }
+
+        let step = FixedStepConfig {
+            gravity: Vec3::ZERO,
+            solver_iterations: 20,
+            velocity_damping: 0.0,
+            ..FixedStepConfig::default()
+        };
+        resistant
+            .step(step)
+            .expect("resistant bending fixture must solve");
+        compliant
+            .step(step)
+            .expect("compliant bending fixture must solve");
+
+        let resistant_error = resistant.max_bending_error();
+        let compliant_error = compliant.max_bending_error();
+        assert!(compliant_error > 0.5);
+        assert!(resistant_error < compliant_error * 0.01);
     }
 
     #[test]
@@ -1109,8 +1389,25 @@ mod tests {
             particle_mass: 1.0,
             stretch_compliance: 0.0,
             shear_compliance: -1.0,
+            bending_compliance: 0.0,
         })
         .expect_err("negative shear compliance must be rejected");
+
+        assert_eq!(error, ClothError::InvalidCompliance);
+    }
+
+    #[test]
+    fn invalid_bending_compliance_is_rejected() {
+        let error = Cloth::rectangular(RectangularClothConfig {
+            columns: 2,
+            rows: 2,
+            spacing: 0.2,
+            particle_mass: 1.0,
+            stretch_compliance: 0.0,
+            shear_compliance: 0.0,
+            bending_compliance: -1.0,
+        })
+        .expect_err("negative bending compliance must be rejected");
 
         assert_eq!(error, ClothError::InvalidCompliance);
     }
