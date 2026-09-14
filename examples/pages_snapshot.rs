@@ -1,8 +1,9 @@
 use std::fmt::Write as _;
 
 use cloth_lab::{
-    CapsuleCollider, Cloth, ClothCollider, ClothError, FixedStepConfig, TextileParameters,
-    TextilePreset, Vec3,
+    CapsuleCollider, Cloth, ClothCollider, ClothError, FixedStepConfig, SelfCollisionConfig,
+    SelfCollisionParticle, SelfCollisionReport, TextileParameters, TextilePreset, Vec3,
+    solve_vertex_triangle_self_collision,
 };
 
 const COLUMNS: usize = 14;
@@ -12,6 +13,7 @@ const DEMO_PRESET: TextilePreset = TextilePreset::CottonLike;
 const DEMO_PARAMETERS: TextileParameters = DEMO_PRESET.parameters();
 const DISPLAY_FRAMES: usize = 181;
 const STEPS_PER_FRAME: usize = 2;
+const SELF_COLLISION_THICKNESS: f64 = 0.08;
 const CAPSULE: CapsuleCollider = CapsuleCollider {
     start: Vec3::new(0.52, -0.58, 0.88),
     end: Vec3::new(1.56, -0.58, 0.88),
@@ -45,6 +47,12 @@ struct PresetEvidence {
     friction_corrections: usize,
 }
 
+#[derive(Clone, Copy)]
+struct SelfCollisionEvidence {
+    report: SelfCollisionReport,
+    output_y: f64,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cloth =
         Cloth::rectangular(DEMO_PARAMETERS.rectangular_config(COLUMNS, ROWS, SPACING, 1.0))?;
@@ -72,9 +80,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         write_preset_summary(&mut output, preset, run_preset_fixture(preset)?)?;
     }
 
+    output.push_str("],\"selfCollisionFixture\":");
+    write_self_collision_summary(&mut output, run_self_collision_fixture()?)?;
+
     write!(
         &mut output,
-        "],\"capsule\":{{\"start\":[{:.8},{:.8},{:.8}],\"end\":[{:.8},{:.8},{:.8}],\"radius\":{:.8},\"thickness\":{:.8}}},\"triangles\":[",
+        ",\"capsule\":{{\"start\":[{:.8},{:.8},{:.8}],\"end\":[{:.8},{:.8},{:.8}],\"radius\":{:.8},\"thickness\":{:.8}}},\"triangles\":[",
         CAPSULE.start.x,
         CAPSULE.start.y,
         CAPSULE.start.z,
@@ -177,6 +188,38 @@ fn run_preset_fixture(preset: TextilePreset) -> Result<PresetEvidence, ClothErro
     })
 }
 
+fn run_self_collision_fixture() -> Result<SelfCollisionEvidence, cloth_lab::SelfCollisionError> {
+    let mut particles = vec![
+        SelfCollisionParticle {
+            position: Vec3::new(-0.3, 0.0, 0.0),
+            inverse_mass: 0.0,
+        },
+        SelfCollisionParticle {
+            position: Vec3::new(0.3, 0.0, 0.0),
+            inverse_mass: 0.0,
+        },
+        SelfCollisionParticle {
+            position: Vec3::new(0.0, 0.0, 0.3),
+            inverse_mass: 0.0,
+        },
+        SelfCollisionParticle {
+            position: Vec3::new(0.0, 0.01, 0.1),
+            inverse_mass: 1.0,
+        },
+    ];
+    let report = solve_vertex_triangle_self_collision(
+        &mut particles,
+        &[[0, 1, 2]],
+        SelfCollisionConfig {
+            thickness: SELF_COLLISION_THICKNESS,
+        },
+    )?;
+    Ok(SelfCollisionEvidence {
+        report,
+        output_y: particles[3].position.y,
+    })
+}
+
 fn write_preset_summary(
     output: &mut String,
     preset: TextilePreset,
@@ -198,6 +241,22 @@ fn write_preset_summary(
         evidence.max_bending_error,
         evidence.collision_projections,
         evidence.friction_corrections,
+    )
+}
+
+fn write_self_collision_summary(
+    output: &mut String,
+    evidence: SelfCollisionEvidence,
+) -> std::fmt::Result {
+    write!(
+        output,
+        "{{\"thickness\":{SELF_COLLISION_THICKNESS:.8},\"outputY\":{:.12},\"broadPhasePairs\":{},\"vertexTriangleCandidates\":{},\"adjacencyExclusions\":{},\"narrowPhaseTests\":{},\"projections\":{}}}",
+        evidence.output_y,
+        evidence.report.broad_phase_pairs,
+        evidence.report.vertex_triangle_candidates,
+        evidence.report.adjacency_exclusions,
+        evidence.report.narrow_phase_tests,
+        evidence.report.projections,
     )
 }
 
