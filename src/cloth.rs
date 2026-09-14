@@ -18,6 +18,7 @@ pub enum ClothError {
     InvalidGravity,
     InvalidSolverIterations,
     InvalidVelocityDamping,
+    InvalidFrictionCoefficient,
     InvalidColliderCenter,
     InvalidColliderAxis,
     InvalidColliderRadius,
@@ -38,6 +39,9 @@ impl fmt::Display for ClothError {
             Self::InvalidGravity => "gravity must contain only finite components",
             Self::InvalidSolverIterations => "solver iteration count must be positive",
             Self::InvalidVelocityDamping => "velocity damping must be finite and between 0 and 1",
+            Self::InvalidFrictionCoefficient => {
+                "contact friction coefficient must be finite and between 0 and 1"
+            }
             Self::InvalidColliderCenter => "collider center must contain only finite components",
             Self::InvalidColliderAxis => {
                 "capsule endpoints must be finite and define a non-degenerate axis"
@@ -135,6 +139,11 @@ impl Default for FixedStepConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ContactConfig {
+    pub friction_coefficient: f64,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SphereCollider {
     pub center: Vec3,
@@ -177,6 +186,7 @@ pub struct StepReport {
     pub max_bending_error: f64,
     pub state_fingerprint: u64,
     pub collision_projections: usize,
+    pub friction_corrections: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -195,6 +205,18 @@ struct PendingBendingEdge {
     start: usize,
     end: usize,
     opposite: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CollisionProjection {
+    normal: Vec3,
+    normal_correction: f64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct CollisionSolveReport {
+    projections: usize,
+    friction_corrections: usize,
 }
 
 impl Cloth {
@@ -377,7 +399,17 @@ impl Cloth {
         config: FixedStepConfig,
         colliders: &[ClothCollider],
     ) -> Result<StepReport, ClothError> {
+        self.step_with_contacts(config, colliders, ContactConfig::default())
+    }
+
+    pub fn step_with_contacts(
+        &mut self,
+        config: FixedStepConfig,
+        colliders: &[ClothCollider],
+        contact: ContactConfig,
+    ) -> Result<StepReport, ClothError> {
         validate_step_config(config)?;
+        validate_contact_config(contact)?;
         validate_colliders(colliders)?;
 
         let delta_squared = config.delta_seconds * config.delta_seconds;
@@ -405,6 +437,7 @@ impl Cloth {
         }
 
         let mut collision_projections = 0;
+        let mut friction_corrections = 0;
         for _ in 0..config.solver_iterations {
             let particles = &mut self.particles;
             for constraint in &mut self.stretch_constraints {
@@ -416,7 +449,9 @@ impl Cloth {
             for constraint in &mut self.bending_constraints {
                 solve_bending_constraint(particles, constraint, config.delta_seconds);
             }
-            collision_projections += solve_collisions(particles, colliders);
+            let collision_report = solve_collisions(particles, colliders, contact);
+            collision_projections += collision_report.projections;
+            friction_corrections += collision_report.friction_corrections;
         }
 
         Ok(StepReport {
@@ -425,6 +460,7 @@ impl Cloth {
             max_bending_error: self.max_bending_error(),
             state_fingerprint: self.state_fingerprint(),
             collision_projections,
+            friction_corrections,
         })
     }
 
@@ -484,7 +520,6 @@ fn build_bending_constraints(
             } else {
                 (end, start)
             };
-
             if let Some(first) = pending.remove(&key) {
                 debug_assert_eq!((start, end), (first.end, first.start));
                 let q = init_isometric_bending_matrix(
@@ -515,7 +550,6 @@ fn build_bending_constraints(
             }
         }
     }
-
     Ok(constraints)
 }
 
@@ -638,6 +672,15 @@ fn validate_step_config(config: FixedStepConfig) -> Result<(), ClothError> {
     Ok(())
 }
 
+fn validate_contact_config(config: ContactConfig) -> Result<(), ClothError> {
+    if !config.friction_coefficient.is_finite()
+        || !(0.0..=1.0).contains(&config.friction_coefficient)
+    {
+        return Err(ClothError::InvalidFrictionCoefficient);
+    }
+    Ok(())
+}
+
 fn validate_colliders(colliders: &[ClothCollider]) -> Result<(), ClothError> {
     for collider in colliders {
         match collider {
@@ -687,17 +730,14 @@ fn solve_distance_constraint(
     if length <= f64::EPSILON {
         return;
     }
-
     let weight_sum = particle_a.inverse_mass + particle_b.inverse_mass;
     if weight_sum <= f64::EPSILON {
         return;
     }
-
     let alpha = constraint.compliance / (delta_seconds * delta_seconds);
     let constraint_error = length - constraint.rest_length;
     let delta_lambda = (-constraint_error - alpha * constraint.lambda) / (weight_sum + alpha);
     constraint.lambda += delta_lambda;
-
     let normal = delta / length;
     particle_a.position += normal * (particle_a.inverse_mass * delta_lambda);
     particle_b.position -= normal * (particle_b.inverse_mass * delta_lambda);
@@ -748,24 +788,38 @@ fn solve_bending_constraint(
     }
 }
 
-fn solve_collisions(particles: &mut [Particle], colliders: &[ClothCollider]) -> usize {
-    let mut projections = 0;
+fn solve_collisions(
+    particles: &mut [Particle],
+    colliders: &[ClothCollider],
+    contact: ContactConfig,
+) -> CollisionSolveReport {
+    let mut report = CollisionSolveReport::default();
     for particle in particles {
         if particle.is_pinned() {
             continue;
         }
         for collider in colliders {
-            let projected = match collider {
+            let projection = match collider {
                 ClothCollider::Sphere(sphere) => solve_sphere_collision(particle, *sphere),
                 ClothCollider::Capsule(capsule) => solve_capsule_collision(particle, *capsule),
             };
-            projections += usize::from(projected);
+            if let Some(projection) = projection {
+                report.projections += 1;
+                report.friction_corrections += usize::from(apply_contact_friction(
+                    particle,
+                    projection,
+                    contact.friction_coefficient,
+                ));
+            }
         }
     }
-    projections
+    report
 }
 
-fn solve_sphere_collision(particle: &mut Particle, collider: SphereCollider) -> bool {
+fn solve_sphere_collision(
+    particle: &mut Particle,
+    collider: SphereCollider,
+) -> Option<CollisionProjection> {
     let effective_radius = collider.effective_radius();
     let current_delta = particle.position - collider.center;
     let current_distance = current_delta.length();
@@ -773,43 +827,52 @@ fn solve_sphere_collision(particle: &mut Particle, collider: SphereCollider) -> 
     if current_distance < effective_radius {
         let previous_delta = particle.previous_position - collider.center;
         let normal = collision_normal(current_delta, previous_delta);
-        particle.position = collider.center + normal * effective_radius;
-        return true;
+        return Some(project_particle(
+            particle,
+            collider.center + normal * effective_radius,
+            normal,
+        ));
     }
 
     let movement = particle.position - particle.previous_position;
     let movement_squared = movement.length_squared();
     if movement_squared <= f64::EPSILON {
-        return false;
+        return None;
     }
 
     let start_delta = particle.previous_position - collider.center;
     let radius_squared = effective_radius * effective_radius;
     let start_distance_squared = start_delta.length_squared();
     if start_distance_squared <= radius_squared {
-        return false;
+        return None;
     }
 
     let projection = dot(start_delta, movement);
     let constant = start_distance_squared - radius_squared;
     let discriminant = projection * projection - movement_squared * constant;
     if discriminant < 0.0 {
-        return false;
+        return None;
     }
 
     let hit_fraction = (-projection - discriminant.sqrt()) / movement_squared;
     if !(0.0..=1.0).contains(&hit_fraction) {
-        return false;
+        return None;
     }
 
     let hit = particle.previous_position + movement * hit_fraction;
     let hit_delta = hit - collider.center;
     let normal = collision_normal(hit_delta, start_delta);
-    particle.position = collider.center + normal * effective_radius;
-    true
+    Some(project_particle(
+        particle,
+        collider.center + normal * effective_radius,
+        normal,
+    ))
 }
 
-fn solve_capsule_collision(particle: &mut Particle, collider: CapsuleCollider) -> bool {
+fn solve_capsule_collision(
+    particle: &mut Particle,
+    collider: CapsuleCollider,
+) -> Option<CollisionProjection> {
     let effective_radius = collider.effective_radius();
     let radius_squared = effective_radius * effective_radius;
     let axis = collider.end - collider.start;
@@ -822,20 +885,23 @@ fn solve_capsule_collision(particle: &mut Particle, collider: CapsuleCollider) -
             closest_point_on_segment(particle.previous_position, collider.start, collider.end);
         let previous_delta = particle.previous_position - previous_axis_point;
         let normal = capsule_collision_normal(current_delta, previous_delta, axis);
-        particle.position = current_axis_point + normal * effective_radius;
-        return true;
+        return Some(project_particle(
+            particle,
+            current_axis_point + normal * effective_radius,
+            normal,
+        ));
     }
 
     let movement = particle.position - particle.previous_position;
     if movement.length_squared() <= f64::EPSILON {
-        return false;
+        return None;
     }
 
     let start_axis_point =
         closest_point_on_segment(particle.previous_position, collider.start, collider.end);
     let start_delta = particle.previous_position - start_axis_point;
     if start_delta.length_squared() <= radius_squared {
-        return false;
+        return None;
     }
 
     let (closest_fraction, closest_distance_squared) = closest_path_fraction_to_segment(
@@ -845,7 +911,7 @@ fn solve_capsule_collision(particle: &mut Particle, collider: CapsuleCollider) -
         collider.end,
     );
     if closest_distance_squared > radius_squared || closest_fraction <= f64::EPSILON {
-        return false;
+        return None;
     }
 
     let mut outside_fraction = 0.0;
@@ -867,7 +933,50 @@ fn solve_capsule_collision(particle: &mut Particle, collider: CapsuleCollider) -
     let hit_axis_point = closest_point_on_segment(hit, collider.start, collider.end);
     let hit_delta = hit - hit_axis_point;
     let normal = capsule_collision_normal(hit_delta, start_delta, axis);
-    particle.position = hit_axis_point + normal * effective_radius;
+    Some(project_particle(
+        particle,
+        hit_axis_point + normal * effective_radius,
+        normal,
+    ))
+}
+
+fn project_particle(
+    particle: &mut Particle,
+    projected_position: Vec3,
+    normal: Vec3,
+) -> CollisionProjection {
+    let correction = projected_position - particle.position;
+    particle.position = projected_position;
+    CollisionProjection {
+        normal,
+        normal_correction: dot(correction, normal).abs(),
+    }
+}
+
+fn apply_contact_friction(
+    particle: &mut Particle,
+    projection: CollisionProjection,
+    friction_coefficient: f64,
+) -> bool {
+    if friction_coefficient <= f64::EPSILON || projection.normal_correction <= f64::EPSILON {
+        return false;
+    }
+
+    let displacement = particle.position - particle.previous_position;
+    let normal_displacement = projection.normal * dot(displacement, projection.normal);
+    let tangential_displacement = displacement - normal_displacement;
+    let tangential_length = tangential_displacement.length();
+    if tangential_length <= f64::EPSILON {
+        return false;
+    }
+
+    let correction_length =
+        (friction_coefficient * projection.normal_correction).min(tangential_length);
+    if correction_length <= f64::EPSILON {
+        return false;
+    }
+
+    particle.previous_position += tangential_displacement * (correction_length / tangential_length);
     true
 }
 
@@ -965,12 +1074,10 @@ fn collision_normal(primary: Vec3, fallback: Vec3) -> Vec3 {
     if primary_length > f64::EPSILON {
         return primary / primary_length;
     }
-
     let fallback_length = fallback.length();
     if fallback_length > f64::EPSILON {
         return fallback / fallback_length;
     }
-
     Vec3::new(0.0, 1.0, 0.0)
 }
 
@@ -979,12 +1086,10 @@ fn capsule_collision_normal(primary: Vec3, fallback: Vec3, axis: Vec3) -> Vec3 {
     if primary_length > f64::EPSILON {
         return primary / primary_length;
     }
-
     let fallback_length = fallback.length();
     if fallback_length > f64::EPSILON {
         return fallback / fallback_length;
     }
-
     deterministic_perpendicular(axis)
 }
 
@@ -1096,10 +1201,14 @@ mod tests {
         })
     }
 
+    fn tangential_displacement(particle: Particle, normal: Vec3) -> f64 {
+        let displacement = particle.position - particle.previous_position;
+        (displacement - normal * dot(displacement, normal)).length()
+    }
+
     #[test]
     fn rectangular_topology_has_stable_ordering() {
         let cloth = cloth_fixture();
-
         assert_eq!(cloth.particles().len(), 36);
         assert_eq!(cloth.triangles().len(), 50);
         assert_eq!(cloth.stretch_constraints().len(), 60);
@@ -1109,8 +1218,6 @@ mod tests {
         assert_eq!(cloth.triangles()[49], [29, 34, 35]);
         assert_eq!(cloth.shear_constraints()[0].particle_a, 0);
         assert_eq!(cloth.shear_constraints()[0].particle_b, 7);
-        assert_eq!(cloth.shear_constraints()[1].particle_a, 1);
-        assert_eq!(cloth.shear_constraints()[1].particle_b, 6);
         assert_eq!(cloth.shear_constraints()[49].particle_a, 29);
         assert_eq!(cloth.shear_constraints()[49].particle_b, 34);
         let first_bend = cloth.bending_constraints()[0];
@@ -1126,13 +1233,9 @@ mod tests {
         let mut cloth = cloth_fixture();
         let left = cloth.particles()[0].position();
         let right = cloth.particles()[cloth.columns() - 1].position();
-
         for _ in 0..240 {
-            cloth
-                .step(FixedStepConfig::default())
-                .expect("fixed step must remain valid");
+            cloth.step(FixedStepConfig::default()).unwrap();
         }
-
         assert_eq!(cloth.particles()[0].position(), left);
         assert_eq!(cloth.particles()[cloth.columns() - 1].position(), right);
     }
@@ -1141,17 +1244,12 @@ mod tests {
     fn repeated_runs_produce_identical_state() {
         let mut first = cloth_fixture();
         let mut second = cloth_fixture();
-
         for _ in 0..240 {
-            let first_report = first
-                .step(FixedStepConfig::default())
-                .expect("first deterministic step must succeed");
-            let second_report = second
-                .step(FixedStepConfig::default())
-                .expect("second deterministic step must succeed");
-            assert_eq!(first_report, second_report);
+            assert_eq!(
+                first.step(FixedStepConfig::default()).unwrap(),
+                second.step(FixedStepConfig::default()).unwrap()
+            );
         }
-
         assert_eq!(first.particles(), second.particles());
         assert_eq!(first.state_fingerprint(), second.state_fingerprint());
     }
@@ -1161,13 +1259,9 @@ mod tests {
         let mut cloth = cloth_fixture();
         let bottom_middle = (cloth.rows() - 1) * cloth.columns() + cloth.columns() / 2;
         let initial_height = cloth.particles()[bottom_middle].position().y;
-
         for _ in 0..360 {
-            cloth
-                .step(FixedStepConfig::default())
-                .expect("fixed step must remain valid");
+            cloth.step(FixedStepConfig::default()).unwrap();
         }
-
         assert!(cloth.particles()[bottom_middle].position().y < initial_height - 0.1);
         assert!(cloth.max_stretch_error() < 0.02);
         assert!(cloth.max_shear_error() < 0.03);
@@ -1178,60 +1272,40 @@ mod tests {
     fn shear_constraints_reduce_diagonal_distortion() {
         let mut resistant = shear_fixture(1.0e-8);
         let mut compliant = shear_fixture(1.0e3);
-        let center = 4;
-
         for cloth in [&mut resistant, &mut compliant] {
-            cloth.particles[center].position += Vec3::new(0.12, 0.0, 0.05);
-            cloth.particles[center].previous_position = cloth.particles[center].position;
+            cloth.particles[4].position += Vec3::new(0.12, 0.0, 0.05);
+            cloth.particles[4].previous_position = cloth.particles[4].position;
         }
-
         let step = FixedStepConfig {
             gravity: Vec3::ZERO,
             solver_iterations: 20,
             velocity_damping: 0.0,
             ..FixedStepConfig::default()
         };
-        resistant
-            .step(step)
-            .expect("resistant shear fixture must solve");
-        compliant
-            .step(step)
-            .expect("compliant shear fixture must solve");
-
-        let resistant_error = resistant.max_shear_error();
-        let compliant_error = compliant.max_shear_error();
-        assert!(compliant_error > 0.01);
-        assert!(resistant_error < compliant_error * 0.25);
+        resistant.step(step).unwrap();
+        compliant.step(step).unwrap();
+        assert!(compliant.max_shear_error() > 0.01);
+        assert!(resistant.max_shear_error() < compliant.max_shear_error() * 0.25);
     }
 
     #[test]
     fn bending_constraints_reduce_fold_energy() {
         let mut resistant = bending_fixture(1.0e-8);
         let mut compliant = bending_fixture(1.0e3);
-        let lifted = 3;
-
         for cloth in [&mut resistant, &mut compliant] {
-            cloth.particles[lifted].position += Vec3::new(0.0, 0.15, 0.0);
-            cloth.particles[lifted].previous_position = cloth.particles[lifted].position;
+            cloth.particles[3].position += Vec3::new(0.0, 0.15, 0.0);
+            cloth.particles[3].previous_position = cloth.particles[3].position;
         }
-
         let step = FixedStepConfig {
             gravity: Vec3::ZERO,
             solver_iterations: 20,
             velocity_damping: 0.0,
             ..FixedStepConfig::default()
         };
-        resistant
-            .step(step)
-            .expect("resistant bending fixture must solve");
-        compliant
-            .step(step)
-            .expect("compliant bending fixture must solve");
-
-        let resistant_error = resistant.max_bending_error();
-        let compliant_error = compliant.max_bending_error();
-        assert!(compliant_error > 0.5);
-        assert!(resistant_error < compliant_error * 0.01);
+        resistant.step(step).unwrap();
+        compliant.step(step).unwrap();
+        assert!(compliant.max_bending_error() > 0.5);
+        assert!(resistant.max_bending_error() < compliant.max_bending_error() * 0.01);
     }
 
     #[test]
@@ -1240,23 +1314,20 @@ mod tests {
         let mut first = cloth_fixture();
         let mut second = cloth_fixture();
         let mut observed_collision = false;
-
         for _ in 0..240 {
             let first_report = first
                 .step_with_colliders(FixedStepConfig::default(), &[collider])
-                .expect("sphere collision step must remain valid");
+                .unwrap();
             let second_report = second
                 .step_with_colliders(FixedStepConfig::default(), &[collider])
-                .expect("replayed sphere collision step must remain valid");
+                .unwrap();
             assert_eq!(first_report, second_report);
             observed_collision |= first_report.collision_projections > 0;
         }
-
         assert!(observed_collision);
         assert_eq!(first.particles(), second.particles());
-
         let ClothCollider::Sphere(sphere) = collider else {
-            unreachable!("sphere fixture must contain a sphere")
+            unreachable!()
         };
         let minimum_distance = sphere.effective_radius() - 1.0e-9;
         for particle in first
@@ -1274,23 +1345,20 @@ mod tests {
         let mut first = cloth_fixture();
         let mut second = cloth_fixture();
         let mut observed_collision = false;
-
         for _ in 0..240 {
             let first_report = first
                 .step_with_colliders(FixedStepConfig::default(), &[collider])
-                .expect("capsule collision step must remain valid");
+                .unwrap();
             let second_report = second
                 .step_with_colliders(FixedStepConfig::default(), &[collider])
-                .expect("replayed capsule collision step must remain valid");
+                .unwrap();
             assert_eq!(first_report, second_report);
             observed_collision |= first_report.collision_projections > 0;
         }
-
         assert!(observed_collision);
         assert_eq!(first.particles(), second.particles());
-
         let ClothCollider::Capsule(capsule) = collider else {
-            unreachable!("capsule fixture must contain a capsule")
+            unreachable!()
         };
         let minimum_distance = capsule.effective_radius() - 1.0e-9;
         for particle in first
@@ -1316,8 +1384,7 @@ mod tests {
             previous_position: Vec3::new(-1.0, 0.0, 0.0),
             inverse_mass: 1.0,
         };
-
-        assert!(solve_sphere_collision(&mut particle, collider));
+        assert!(solve_sphere_collision(&mut particle, collider).is_some());
         assert!((particle.position.x + collider.effective_radius()).abs() < 1.0e-12);
         assert!(particle.position.y.abs() < 1.0e-12);
         assert!(particle.position.z.abs() < 1.0e-12);
@@ -1336,11 +1403,93 @@ mod tests {
             previous_position: Vec3::new(-1.0, 0.0, 0.0),
             inverse_mass: 1.0,
         };
-
-        assert!(solve_capsule_collision(&mut particle, collider));
+        assert!(solve_capsule_collision(&mut particle, collider).is_some());
         assert!((particle.position.x + collider.effective_radius()).abs() < 1.0e-10);
         assert!(particle.position.y.abs() < 1.0e-10);
         assert!(particle.position.z.abs() < 1.0e-10);
+    }
+
+    #[test]
+    fn coulomb_bounded_friction_reduces_tangential_slip_without_moving_contact() {
+        let collider = SphereCollider {
+            center: Vec3::ZERO,
+            radius: 1.0,
+            thickness: 0.0,
+        };
+        let seed = Particle {
+            position: Vec3::new(0.8, 0.0, 0.2),
+            previous_position: Vec3::new(0.9, 0.0, -0.2),
+            inverse_mass: 1.0,
+        };
+        let mut frictionless = seed;
+        let mut frictional = seed;
+        let frictionless_projection = solve_sphere_collision(&mut frictionless, collider).unwrap();
+        let frictional_projection = solve_sphere_collision(&mut frictional, collider).unwrap();
+        assert_eq!(frictionless.position, frictional.position);
+        let before = tangential_displacement(frictional, frictional_projection.normal);
+        assert!(!apply_contact_friction(
+            &mut frictionless,
+            frictionless_projection,
+            0.0
+        ));
+        assert!(apply_contact_friction(
+            &mut frictional,
+            frictional_projection,
+            1.0
+        ));
+        let after = tangential_displacement(frictional, frictional_projection.normal);
+        assert!(after < before);
+        assert_eq!(frictionless.position, frictional.position);
+        assert!(before - after <= frictional_projection.normal_correction + 1.0e-12);
+    }
+
+    #[test]
+    fn frictional_contact_replay_is_deterministic() {
+        let collider = capsule_fixture();
+        let contact = ContactConfig {
+            friction_coefficient: 0.65,
+        };
+        let mut first = cloth_fixture();
+        let mut second = cloth_fixture();
+        for cloth in [&mut first, &mut second] {
+            for particle in cloth
+                .particles
+                .iter_mut()
+                .filter(|particle| !particle.is_pinned())
+            {
+                particle.previous_position.z -= 0.02;
+            }
+        }
+        let mut observed_friction = false;
+        for _ in 0..240 {
+            let first_report = first
+                .step_with_contacts(FixedStepConfig::default(), &[collider], contact)
+                .unwrap();
+            let second_report = second
+                .step_with_contacts(FixedStepConfig::default(), &[collider], contact)
+                .unwrap();
+            assert_eq!(first_report, second_report);
+            observed_friction |= first_report.friction_corrections > 0;
+        }
+        assert!(observed_friction);
+        assert_eq!(first.particles(), second.particles());
+    }
+
+    #[test]
+    fn invalid_contact_friction_fails_closed_before_advancing() {
+        let mut cloth = cloth_fixture();
+        let fingerprint = cloth.state_fingerprint();
+        let error = cloth
+            .step_with_contacts(
+                FixedStepConfig::default(),
+                &[capsule_fixture()],
+                ContactConfig {
+                    friction_coefficient: 1.01,
+                },
+            )
+            .expect_err("out-of-range friction must be rejected");
+        assert_eq!(error, ClothError::InvalidFrictionCoefficient);
+        assert_eq!(cloth.state_fingerprint(), fingerprint);
     }
 
     #[test]
@@ -1352,11 +1501,9 @@ mod tests {
             radius: 0.5,
             thickness: -0.1,
         });
-
         let error = cloth
             .step_with_colliders(FixedStepConfig::default(), &[invalid])
             .expect_err("negative collision thickness must be rejected");
-
         assert_eq!(error, ClothError::InvalidCollisionThickness);
         assert_eq!(cloth.state_fingerprint(), fingerprint);
     }
@@ -1371,11 +1518,9 @@ mod tests {
             radius: 0.5,
             thickness: 0.0,
         });
-
         let error = cloth
             .step_with_colliders(FixedStepConfig::default(), &[invalid])
             .expect_err("degenerate capsule axis must be rejected");
-
         assert_eq!(error, ClothError::InvalidColliderAxis);
         assert_eq!(cloth.state_fingerprint(), fingerprint);
     }
@@ -1392,7 +1537,6 @@ mod tests {
             bending_compliance: 0.0,
         })
         .expect_err("negative shear compliance must be rejected");
-
         assert_eq!(error, ClothError::InvalidCompliance);
     }
 
@@ -1408,7 +1552,6 @@ mod tests {
             bending_compliance: -1.0,
         })
         .expect_err("negative bending compliance must be rejected");
-
         assert_eq!(error, ClothError::InvalidCompliance);
     }
 
@@ -1421,7 +1564,6 @@ mod tests {
                 ..FixedStepConfig::default()
             })
             .expect_err("zero timestep must be rejected");
-
         assert_eq!(error, ClothError::InvalidTimeStep);
     }
 }

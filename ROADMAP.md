@@ -30,7 +30,7 @@
 - Separate solver parameters from named material presets.
 - Establish measurable cotton-, denim-, silk-, and leather-like qualitative fixtures without claiming real-world material accuracy prematurely.
 
-**Progress:** shear resistance and mesh-general isometric bending are implemented as separate deterministic XPBD constraint families with independent compliance and error evidence. Bending stencils are derived from shared triangle edges rather than rectangular-grid shortcuts. Cloth/rigid friction and named material presets remain.
+**Progress:** shear resistance, mesh-general isometric bending, and deterministic cloth/rigid contact friction are implemented independently. Contact friction uses an explicit raw coefficient, preserves the zero-friction collision path, and bounds tangential velocity correction by the normal contact projection in the same Coulomb-style spirit as `physics-engine`. Named material presets and their qualitative fixtures remain.
 
 ## 4. Self-collision
 
