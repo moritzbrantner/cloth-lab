@@ -21,6 +21,15 @@ const CAPSULE: CapsuleCollider = CapsuleCollider {
     thickness: 0.025,
 };
 
+#[derive(Clone, Copy)]
+struct FrameEvidence {
+    max_stretch_error: f64,
+    max_shear_error: f64,
+    max_bending_error: f64,
+    collision_projections: usize,
+    friction_corrections: usize,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cloth = Cloth::rectangular(RectangularClothConfig {
         columns: COLUMNS,
@@ -81,11 +90,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut output,
         0,
         &cloth,
-        cloth.max_stretch_error(),
-        cloth.max_shear_error(),
-        cloth.max_bending_error(),
-        0,
-        0,
+        FrameEvidence {
+            max_stretch_error: cloth.max_stretch_error(),
+            max_shear_error: cloth.max_shear_error(),
+            max_bending_error: cloth.max_bending_error(),
+            collision_projections: 0,
+            friction_corrections: 0,
+        },
     )?;
 
     for frame_index in 1..DISPLAY_FRAMES {
@@ -99,11 +110,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &mut output,
             frame_index * STEPS_PER_FRAME,
             &cloth,
-            report.max_stretch_error,
-            report.max_shear_error,
-            report.max_bending_error,
-            report.collision_projections,
-            report.friction_corrections,
+            FrameEvidence {
+                max_stretch_error: report.max_stretch_error,
+                max_shear_error: report.max_shear_error,
+                max_bending_error: report.max_bending_error,
+                collision_projections: report.collision_projections,
+                friction_corrections: report.friction_corrections,
+            },
         )?;
     }
 
@@ -116,16 +129,17 @@ fn write_frame(
     output: &mut String,
     step: usize,
     cloth: &Cloth,
-    max_stretch_error: f64,
-    max_shear_error: f64,
-    max_bending_error: f64,
-    collision_projections: usize,
-    friction_corrections: usize,
+    evidence: FrameEvidence,
 ) -> std::fmt::Result {
     write!(
         output,
-        "{{\"step\":{step},\"fingerprint\":\"{:016x}\",\"maxStretchError\":{max_stretch_error:.12},\"maxShearError\":{max_shear_error:.12},\"maxBendingError\":{max_bending_error:.12},\"collisionProjections\":{collision_projections},\"frictionCorrections\":{friction_corrections},\"positions\":[",
-        cloth.state_fingerprint()
+        "{{\"step\":{step},\"fingerprint\":\"{:016x}\",\"maxStretchError\":{:.12},\"maxShearError\":{:.12},\"maxBendingError\":{:.12},\"collisionProjections\":{},\"frictionCorrections\":{},\"positions\":[",
+        cloth.state_fingerprint(),
+        evidence.max_stretch_error,
+        evidence.max_shear_error,
+        evidence.max_bending_error,
+        evidence.collision_projections,
+        evidence.friction_corrections,
     )?;
 
     for (index, particle) in cloth.particles().iter().enumerate() {
