@@ -2,6 +2,10 @@ use core::fmt;
 
 use crate::Vec3;
 
+mod glb;
+
+pub use glb::GlbGarmentImporter;
+
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
@@ -9,6 +13,7 @@ const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GarmentSourceFormat {
     Obj,
+    Glb,
 }
 
 /// Normalized geometry that can be validated independently of a UI or file parser.
@@ -150,6 +155,20 @@ pub enum GarmentImportError {
     InvalidFaceIndex { line: usize },
     FaceIndexOutOfBounds { line: usize },
     DegenerateFace { line: usize },
+    InvalidGlb,
+    MissingGlbBinaryChunk,
+    ExternalGlbBuffer,
+    MissingGlbScene,
+    AmbiguousGlbScene,
+    UnsupportedGlbAnimation,
+    UnsupportedGlbSkin,
+    UnsupportedGlbMorphTargets,
+    UnsupportedGlbPrimitiveMode,
+    MissingGlbPositions,
+    InvalidGlbIndices,
+    NonFiniteGlbGeometry,
+    DegenerateGlbTriangle,
+    GlbHierarchyTooDeep,
 }
 
 impl fmt::Display for GarmentImportError {
@@ -171,6 +190,44 @@ impl fmt::Display for GarmentImportError {
             }
             Self::DegenerateFace { line } => {
                 write!(formatter, "degenerate OBJ face at line {line}")
+            }
+            Self::InvalidGlb => formatter.write_str("garment input is not a valid GLB 2.0 asset"),
+            Self::MissingGlbBinaryChunk => {
+                formatter.write_str("GLB garment has no embedded binary geometry buffer")
+            }
+            Self::ExternalGlbBuffer => formatter.write_str(
+                "GLB garment references an external geometry buffer; upload a self-contained GLB",
+            ),
+            Self::MissingGlbScene => formatter.write_str("GLB garment has no scene to import"),
+            Self::AmbiguousGlbScene => formatter.write_str(
+                "GLB garment has multiple scenes but no default scene; scene selection is ambiguous",
+            ),
+            Self::UnsupportedGlbAnimation => formatter.write_str(
+                "animated GLB garments are not supported by the static garment importer yet",
+            ),
+            Self::UnsupportedGlbSkin => formatter.write_str(
+                "skinned GLB garments are not supported by the static garment importer yet",
+            ),
+            Self::UnsupportedGlbMorphTargets => formatter.write_str(
+                "GLB morph targets are not supported by the static garment importer yet",
+            ),
+            Self::UnsupportedGlbPrimitiveMode => formatter.write_str(
+                "GLB garment primitives must use indexed or unindexed triangle mode",
+            ),
+            Self::MissingGlbPositions => {
+                formatter.write_str("GLB garment primitive has no POSITION attribute")
+            }
+            Self::InvalidGlbIndices => {
+                formatter.write_str("GLB garment primitive has invalid triangle indices")
+            }
+            Self::NonFiniteGlbGeometry => {
+                formatter.write_str("GLB garment geometry becomes non-finite after transforms")
+            }
+            Self::DegenerateGlbTriangle => {
+                formatter.write_str("GLB garment contains a degenerate triangle")
+            }
+            Self::GlbHierarchyTooDeep => {
+                formatter.write_str("GLB garment node hierarchy exceeds the supported depth")
             }
         }
     }
