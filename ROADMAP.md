@@ -59,15 +59,16 @@
 - **OBJ first:** prove arbitrary mesh ingestion and deterministic normalization without pretending that a plain mesh contains pattern/sewing semantics.
 - **glTF/GLB next:** use the open, web-friendly mesh/material format for uploads and previews; treat CLO/Marvelous garment metadata in `extras` as an optional vendor extension only when its schema is stable enough to validate explicitly.
 - **DXF-AAMA/ASTM after the normalized pattern model exists:** preserve 2D apparel pattern pieces instead of flattening them into a generic mesh; require explicit sewing information where DXF does not provide enough to reconstruct it.
+- **U3M alongside material calibration:** consume fashion-oriented PBR plus measured physical material data through explicit, testable mappings into solver parameters; do not infer simulation physics from visual material properties.
 - **FBX and USD/USDZ later:** compatibility adapters for broader DCC pipelines, not cloth-specific authorities.
-- **CLO/Marvelous `.zpac`/`.zprj` via supported integration only:** these are semantically rich but vendor-owned; use a documented schema/SDK/export path rather than reverse-engineering proprietary containers.
+- **CLO/Marvelous `.zpac`/`.zprj` and Browzwear `.bw` via supported integration only:** these are semantically rich but vendor-owned; use documented schemas, SDKs, or export paths rather than reverse-engineering proprietary containers.
 - **Alembic and point caches remain low priority for ingestion:** useful as baked animation/reference evidence, not as editable simulation assets.
 
 See [docs/garment-formats.md](docs/garment-formats.md) for the format rationale and source references.
 
-**Progress:** the first import slice defines a parser-independent `GarmentAsset`, deterministic simulation-geometry fingerprinting, and a fail-closed OBJ adapter with deterministic polygon triangulation. This slice intentionally imports only surface geometry; richer garment semantics are deferred until the canonical asset model can represent them explicitly.
+**Progress:** the import foundation defines a parser-independent `GarmentAsset`, deterministic simulation-geometry fingerprinting, and a fail-closed OBJ adapter with deterministic polygon triangulation. The next simulation slice adds `TriangleMeshCloth`, derives structural constraints only from real mesh edges, reuses the existing mesh-general bending/collision/contact solver primitives, validates manifold/winding assumptions before state creation, and proves imported OBJ geometry can enter deterministic simulation. Plain mesh formats intentionally do not manufacture pattern-space shear, seam, or fabric semantics they do not contain.
 
-**Acceptance:** a supported uploaded garment can be converted into a stable `GarmentAsset`, round-tripped/reloaded without changing its simulation fingerprint, and used as the initial state for deterministic cloth simulation. Parser failures never partially mutate simulation state.
+**Acceptance:** a supported uploaded garment can be converted into a stable `GarmentAsset`, round-tripped/reloaded without changing its simulation fingerprint, and used as the initial state for deterministic cloth simulation. Parser and topology failures never partially mutate simulation state.
 
 ## 6. Interactive mode and rendering
 
