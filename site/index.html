@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Interactive deterministic cloth simulation with OBJ and GLB garment uploads backed by the Rust cloth-lab solver."
+      content="Interactive deterministic cloth simulation sandbox with mesh, textile, solver, pin, and garment controls backed by the Rust cloth-lab solver."
     />
     <title>cloth-lab demo</title>
     <link rel="stylesheet" href="styles.css" />
@@ -18,8 +18,8 @@
           <p class="eyebrow">cloth-lab</p>
           <h1>Deterministic cloth simulation</h1>
           <p>
-            Inspect the deterministic reference fixture or upload an OBJ/GLB garment mesh and run the
-            same Rust solver interactively in the browser.
+            Experiment with a live cloth sheet, change its mesh and material, place movable pins,
+            tune solver behavior, or upload an OBJ/GLB garment mesh.
           </p>
         </div>
         <a href="https://github.com/moritzbrantner/cloth-lab">Source on GitHub</a>
@@ -29,26 +29,65 @@
         <div class="viewer-heading">
           <div>
             <h2 id="viewer-title">Cloth simulation lab</h2>
-            <p id="status" aria-live="polite">Loading deterministic snapshots…</p>
+            <p id="status" aria-live="polite">Loading interactive Rust solver…</p>
           </div>
           <div class="actions">
-            <label class="field" for="material-preset">
-              <span>Textile</span>
-              <select id="material-preset">
-                <option value="cotton-like">Cotton-like</option>
-                <option value="denim-like">Denim-like</option>
-                <option value="silk-like">Silk-like</option>
-                <option value="leather-like">Leather-like</option>
-              </select>
-            </label>
             <label class="upload-control" for="garment-upload">
               <span>Upload garment</span>
               <input id="garment-upload" type="file" accept=".obj,.glb,model/gltf-binary" />
             </label>
+            <button id="use-demo" type="button" disabled>Sheet demo</button>
             <button id="play-toggle" type="button" disabled>Pause</button>
             <button id="single-step" type="button" disabled>Step</button>
             <button id="restart" type="button" disabled>Restart</button>
           </div>
+        </div>
+
+        <div class="control-panel" aria-label="Simulation controls">
+          <label class="control" for="material-preset">
+            <span>Textile</span>
+            <select id="material-preset">
+              <option value="cotton-like">Cotton-like</option>
+              <option value="denim-like">Denim-like</option>
+              <option value="silk-like">Silk-like</option>
+              <option value="leather-like">Leather-like</option>
+            </select>
+          </label>
+
+          <label class="control range-control" for="mesh-resolution">
+            <span>Sheet mesh</span>
+            <input id="mesh-resolution" type="range" min="6" max="40" step="1" value="14" />
+            <output id="mesh-resolution-value" for="mesh-resolution">286 faces</output>
+          </label>
+
+          <label class="control range-control" for="gravity-control">
+            <span>Gravity</span>
+            <input id="gravity-control" type="range" min="-20" max="5" step="0.1" value="-9.81" />
+            <output id="gravity-value" for="gravity-control">-9.81 m/s²</output>
+          </label>
+
+          <label class="control range-control" for="solver-iterations">
+            <span>Solver iterations</span>
+            <input id="solver-iterations" type="range" min="2" max="24" step="1" value="12" />
+            <output id="solver-iterations-value" for="solver-iterations">12</output>
+          </label>
+
+          <label class="control range-control" for="velocity-damping">
+            <span>Velocity damping</span>
+            <input id="velocity-damping" type="range" min="0.9" max="1" step="0.001" value="0.995" />
+            <output id="velocity-damping-value" for="velocity-damping">0.995</output>
+          </label>
+
+          <label class="control" for="interaction-mode">
+            <span>Pointer tool</span>
+            <select id="interaction-mode">
+              <option value="drag">Drag cloth</option>
+              <option value="pin">Add / move pins</option>
+              <option value="unpin">Remove pins</option>
+            </select>
+          </label>
+
+          <button id="clear-pins" class="control-action" type="button" disabled>Clear pins</button>
         </div>
 
         <canvas
@@ -56,7 +95,7 @@
           width="1200"
           height="760"
           role="img"
-          aria-label="Three-dimensional rendering of a simulated cloth surface"
+          aria-label="Three-dimensional rendering of a simulated cloth surface. Use the pointer tool control to drag cloth or edit pins."
         ></canvas>
 
         <label class="timeline" for="frame-slider">
@@ -66,11 +105,12 @@
       </section>
 
       <p class="boundary-note">
-        The initial fixture replays snapshots generated by the Rust solver during the Pages build.
-        Uploaded OBJ and self-contained GLB triangle meshes run live through the same cloth-lab Rust
-        core compiled to WebAssembly. Mesh formats provide geometry only here: seams, patterns,
-        measured fabric properties, skins, and animation are not inferred when the source does not
-        provide supported simulation semantics.
+        The sheet demo and uploaded OBJ/self-contained GLB triangle meshes run through the cloth-lab
+        Rust core compiled to WebAssembly. Mesh density changes the sheet topology while preserving its
+        physical size. Textile presets map to solver compliance and contact parameters; solver controls
+        change the explicit fixed-step configuration. Pins are persistent kinematic constraints whose
+        targets can be moved. Uploaded mesh formats still provide geometry only: seams, patterns,
+        measured fabric properties, skins, and animation are not inferred when unsupported by the source.
       </p>
     </main>
   </body>
