@@ -56,8 +56,8 @@
 
 ### Format sequence
 
-- **OBJ first:** prove arbitrary mesh ingestion and deterministic normalization without pretending that a plain mesh contains pattern/sewing semantics.
-- **glTF/GLB next:** use the open, web-friendly mesh/material format for uploads and previews; treat CLO/Marvelous garment metadata in `extras` as an optional vendor extension only when its schema is stable enough to validate explicitly.
+- **OBJ:** supported for deterministic geometry-only ingestion; it does not imply pattern/sewing/material semantics.
+- **GLB:** self-contained static triangle geometry is supported next to OBJ, including deterministic scene-node transforms. Unsupported animations, skins, morph targets, external buffers, ambiguous scenes, and non-triangle primitives fail closed. Loose `.gltf` plus sidecars remains future work if multi-file browser upload is justified.
 - **DXF-AAMA/ASTM after the normalized pattern model exists:** preserve 2D apparel pattern pieces instead of flattening them into a generic mesh; require explicit sewing information where DXF does not provide enough to reconstruct it.
 - **U3M alongside material calibration:** consume fashion-oriented PBR plus measured physical material data through explicit, testable mappings into solver parameters; do not infer simulation physics from visual material properties.
 - **FBX and USD/USDZ later:** compatibility adapters for broader DCC pipelines, not cloth-specific authorities.
@@ -66,7 +66,7 @@
 
 See [docs/garment-formats.md](docs/garment-formats.md) for the format rationale and source references.
 
-**Progress:** the import foundation defines a parser-independent `GarmentAsset`, deterministic simulation-geometry fingerprinting, and a fail-closed OBJ adapter with deterministic polygon triangulation. The next simulation slice adds `TriangleMeshCloth`, derives structural constraints only from real mesh edges, reuses the existing mesh-general bending/collision/contact solver primitives, validates manifold/winding assumptions before state creation, and proves imported OBJ geometry can enter deterministic simulation. Plain mesh formats intentionally do not manufacture pattern-space shear, seam, or fabric semantics they do not contain.
+**Progress:** the import foundation now has a parser-independent `GarmentAsset`, deterministic simulation-geometry fingerprints, fail-closed OBJ and self-contained GLB geometry adapters, and a `TriangleMeshCloth` path for arbitrary indexed surfaces. Structural constraints come only from real mesh edges and reuse the existing mesh-general bending/collision/contact solver primitives. Plain mesh formats intentionally do not manufacture pattern-space shear, seam, or fabric semantics they do not contain.
 
 **Acceptance:** a supported uploaded garment can be converted into a stable `GarmentAsset`, round-tripped/reloaded without changing its simulation fingerprint, and used as the initial state for deterministic cloth simulation. Parser and topology failures never partially mutate simulation state.
 
@@ -80,6 +80,8 @@ See [docs/garment-formats.md](docs/garment-formats.md) for the format rationale 
 - Surface garment-upload/import validation and parsing errors clearly before simulation begins.
 - Add camera and inspection controls without coupling them to the solver.
 - Add debug views for constraints, collisions, normals, self-collision contacts, and solver error.
+
+**Progress:** deterministic begin/update/end particle-drag inputs now exist for both rectangular and imported triangle-mesh cloth. A drag temporarily makes the selected particle kinematic, resets previous position on target updates/release, rejects invalid targets fail-closed, and replays identically from the same recorded targets. The next slice is viewer/browser picking and upload controls over this core input API, plus pause/single-step/reset.
 
 **Acceptance:** a user can upload a supported garment, inspect the normalized asset, start/pause/step/reset its simulation, and manipulate supported interactive inputs while replay from the same asset and recorded inputs remains deterministic.
 
