@@ -1,4 +1,4 @@
-use crate::cloth::{ContactConfig, RectangularClothConfig};
+use crate::cloth::{ContactConfig, RectangularClothConfig, TriangleMeshClothConfig};
 
 /// Named qualitative cloth presets used for deterministic comparison fixtures.
 ///
@@ -91,6 +91,18 @@ impl TextileParameters {
             particle_mass,
             stretch_compliance: self.stretch_compliance,
             shear_compliance: self.shear_compliance,
+            bending_compliance: self.bending_compliance,
+        }
+    }
+
+    /// Map the material parameters that a plain triangle mesh can represent without inventing
+    /// pattern-space directions. Shear remains available on the material preset, but is not folded
+    /// into a generic mesh edge because an OBJ/glTF surface does not identify warp/weft axes.
+    #[must_use]
+    pub const fn triangle_mesh_config(self, particle_mass: f64) -> TriangleMeshClothConfig {
+        TriangleMeshClothConfig {
+            particle_mass,
+            stretch_compliance: self.stretch_compliance,
             bending_compliance: self.bending_compliance,
         }
     }
@@ -191,6 +203,7 @@ mod tests {
     fn preset_mapping_keeps_topology_spacing_and_mass_explicit() {
         let parameters = TextilePreset::DenimLike.parameters();
         let config = parameters.rectangular_config(5, 7, 0.3, 2.5);
+        let mesh_config = parameters.triangle_mesh_config(2.5);
 
         assert_eq!(config.columns, 5);
         assert_eq!(config.rows, 7);
@@ -199,6 +212,15 @@ mod tests {
         assert_eq!(config.stretch_compliance, parameters.stretch_compliance);
         assert_eq!(config.shear_compliance, parameters.shear_compliance);
         assert_eq!(config.bending_compliance, parameters.bending_compliance);
+        assert_eq!(mesh_config.particle_mass, 2.5);
+        assert_eq!(
+            mesh_config.stretch_compliance,
+            parameters.stretch_compliance
+        );
+        assert_eq!(
+            mesh_config.bending_compliance,
+            parameters.bending_compliance
+        );
         assert_eq!(
             parameters.contact_config().friction_coefficient,
             parameters.friction_coefficient
