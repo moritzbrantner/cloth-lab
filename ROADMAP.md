@@ -41,19 +41,33 @@
 
 **Progress:** the first self-collision kernel slice is implemented independently of the main cloth step loop. It uses explicit positive thickness, the pinned `rust-kernels` sweep-and-prune broad phase already exercised by `collision-lab`, conservative f32 AABBs for candidate generation, f64 vertex/triangle narrow phase, inverse-mass-weighted projection, deterministic one-ring mesh exclusions, and degenerate-triangle fallbacks. The next slice wires this proven kernel into every cloth solver iteration and adds folding/inversion stress fixtures before broader self-collision optimization.
 
-## 5. Garments
+## 5. Garments and asset ingestion
 
 - Support attachment constraints to animated bodies.
 - Add cape/skirt-style garment fixtures.
+- Add a user-uploaded clothing import pipeline rather than requiring garments to be authored as code fixtures.
+- Parse each supported source format through an adapter into a normalized `GarmentAsset` containing simulation topology/rest geometry plus explicit material, seam, and attachment metadata where the source provides them.
+- Keep the normalized garment asset independent of the viewer/session so imported clothes can be stored, replayed, tested, and simulated again without reparsing UI state.
+- Canonicalize and fingerprint imported assets deterministically; identical supported input and import settings must produce identical simulation assets.
+- Validate imports before simulation and fail closed on malformed topology, unsupported features, invalid indices, non-finite geometry, or ambiguous required metadata rather than silently repairing them differently between runs.
+- Keep garment-specific parsing and normalization outside the solver loop. Reuse generic asset provenance/build infrastructure from `asset-tooling` when that becomes useful instead of creating a second general-purpose asset pipeline here.
 - Validate fast-moving attachment points and character collision.
 - Keep animation authority outside the cloth solver.
 
-## 6. Rendering and interaction
+**Acceptance:** a supported uploaded garment can be converted into a stable `GarmentAsset`, round-tripped/reloaded without changing its simulation fingerprint, and used as the initial state for deterministic cloth simulation. Parser failures never partially mutate simulation state.
+
+## 6. Interactive mode and rendering
 
 - Add a wgpu viewer over simulation snapshots.
 - Update render vertices from authoritative simulation positions.
+- Add an interactive mode that can load normalized garment assets and run them directly in the cloth simulation.
+- Allow explicit user interaction with the simulation, including grabbing/dragging/releasing cloth and editing supported pins or attachment inputs, without giving the rendering layer direct authority over solver state.
+- Add pause/resume, deterministic single-step, reset/replay, and controlled simulation-parameter inspection so interactive experiments remain reproducible.
+- Surface garment-upload/import validation and parsing errors clearly before simulation begins.
 - Add camera and inspection controls without coupling them to the solver.
-- Add debug views for constraints, collisions, normals, and solver error.
+- Add debug views for constraints, collisions, normals, self-collision contacts, and solver error.
+
+**Acceptance:** a user can upload a supported garment, inspect the normalized asset, start/pause/step/reset its simulation, and manipulate supported interactive inputs while replay from the same asset and recorded inputs remains deterministic.
 
 ## 7. Performance and scale
 
