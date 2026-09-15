@@ -89,11 +89,7 @@ impl GarmentImporter for ObjGarmentImporter {
 
         for (line_index, raw_line) in source.lines().enumerate() {
             let line_number = line_index + 1;
-            let line = raw_line
-                .split('#')
-                .next()
-                .unwrap_or_default()
-                .trim();
+            let line = raw_line.split('#').next().unwrap_or_default().trim();
             if line.is_empty() {
                 continue;
             }
@@ -246,9 +242,7 @@ fn hash_u64(hash: &mut u64, value: u64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        GarmentImportError, GarmentImporter, GarmentSourceFormat, ObjGarmentImporter,
-    };
+    use super::{GarmentImportError, GarmentImporter, GarmentSourceFormat, ObjGarmentImporter};
     use crate::Vec3;
 
     #[test]
@@ -300,7 +294,9 @@ mod tests {
     fn rejects_non_finite_vertices_before_asset_creation() {
         let source = b"v NaN 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
 
-        let error = ObjGarmentImporter.import(source).expect_err("must fail closed");
+        let error = ObjGarmentImporter
+            .import(source)
+            .expect_err("must fail closed");
 
         assert_eq!(error, GarmentImportError::NonFiniteVertex { line: 1 });
     }
@@ -309,7 +305,9 @@ mod tests {
     fn rejects_out_of_bounds_faces() {
         let source = b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 4\n";
 
-        let error = ObjGarmentImporter.import(source).expect_err("must fail closed");
+        let error = ObjGarmentImporter
+            .import(source)
+            .expect_err("must fail closed");
 
         assert_eq!(error, GarmentImportError::FaceIndexOutOfBounds { line: 4 });
     }
@@ -321,6 +319,9 @@ mod tests {
         let first = ObjGarmentImporter.import(source).expect("valid OBJ");
         let second = ObjGarmentImporter.import(source).expect("valid OBJ");
 
-        assert_eq!(first.simulation_fingerprint(), second.simulation_fingerprint());
+        assert_eq!(
+            first.simulation_fingerprint(),
+            second.simulation_fingerprint()
+        );
     }
 }
