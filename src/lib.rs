@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod cloth;
+mod garment;
 mod material;
 mod math;
 mod self_collision;
@@ -14,6 +15,9 @@ pub use cloth::{
     BendingConstraint, CapsuleCollider, Cloth, ClothCollider, ClothError, ContactConfig,
     DistanceConstraint, FixedStepConfig, Particle, RectangularClothConfig, SphereCollider,
     StepReport,
+};
+pub use garment::{
+    GarmentAsset, GarmentImportError, GarmentImporter, GarmentSourceFormat, ObjGarmentImporter,
 };
 pub use material::{TextileParameters, TextilePreset};
 pub use math::Vec3;
