@@ -2,3 +2,4 @@
 // reuse one simulation authority without duplicating collision or constraint implementations.
 include!("cloth/base.rs");
 include!("cloth/triangle_mesh.rs");
+include!("cloth/interaction.rs");
