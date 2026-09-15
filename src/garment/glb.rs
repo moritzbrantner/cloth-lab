@@ -170,13 +170,13 @@ fn append_primitive(
     } else {
         (0..primitive_positions.len()).collect::<Vec<_>>()
     };
-    if local_indices.is_empty() || local_indices.len() % 3 != 0 {
+    if local_indices.is_empty() || !local_indices.len().is_multiple_of(3) {
         return Err(GarmentImportError::InvalidGlbIndices);
     }
 
     let base_index = positions.len();
-    for indices in local_indices.chunks_exact(3) {
-        let triangle = [indices[0], indices[1], indices[2]];
+    for triangle in local_indices.as_chunks::<3>().0 {
+        let triangle = *triangle;
         if triangle
             .into_iter()
             .any(|index| index >= primitive_positions.len())
@@ -377,11 +377,11 @@ mod tests {
 
     fn build_glb(json: &str, binary: Option<&[u8]>) -> Vec<u8> {
         let mut json_chunk = json.as_bytes().to_vec();
-        while json_chunk.len() % 4 != 0 {
+        while !json_chunk.len().is_multiple_of(4) {
             json_chunk.push(b' ');
         }
         let mut binary_chunk = binary.unwrap_or_default().to_vec();
-        while binary_chunk.len() % 4 != 0 {
+        while !binary_chunk.len().is_multiple_of(4) {
             binary_chunk.push(0);
         }
 
