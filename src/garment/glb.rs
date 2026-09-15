@@ -16,7 +16,7 @@ const IDENTITY_MATRIX: Matrix4 = [
 /// Geometry-only importer for a self-contained binary glTF (`.glb`) garment.
 ///
 /// Static triangle meshes from the selected scene are flattened into one normalized simulation
-/// surface after applying the node hierarchy transforms. Rendering-only attributes are ignored.
+/// surface after applying node hierarchy transforms. Rendering-only attributes are ignored.
 /// Animation, skins, morph targets, external geometry buffers, and non-triangle primitives are
 /// rejected explicitly rather than being approximated or silently discarded.
 #[derive(Clone, Copy, Debug, Default)]
@@ -107,8 +107,10 @@ fn append_node(
         return Err(GarmentImportError::UnsupportedGlbMorphTargets);
     }
 
-    let local_transform = matrix_to_f64(node.transform().matrix());
-    let world_transform = multiply_matrices(parent_transform, local_transform);
+    let world_transform = multiply_matrices(
+        parent_transform,
+        matrix_to_f64(node.transform().matrix()),
+    );
     if !matrix_is_finite(world_transform) {
         return Err(GarmentImportError::NonFiniteGlbGeometry);
     }
@@ -158,8 +160,7 @@ fn append_primitive(
         .ok_or(GarmentImportError::MissingGlbPositions)?
         .map(|position| transform_position(transform, position))
         .collect::<Result<Vec<_>, _>>()?;
-    let vertex_count = primitive_positions.len();
-    if vertex_count == 0 {
+    if primitive_positions.is_empty() {
         return Err(GarmentImportError::MissingGlbPositions);
     }
 
@@ -169,40 +170,38 @@ fn append_primitive(
             .map(|index| usize::try_from(index).map_err(|_| GarmentImportError::InvalidGlbIndices))
             .collect::<Result<Vec<_>, _>>()?
     } else {
-        (0..vertex_count).collect::<Vec<_>>()
+        (0..primitive_positions.len()).collect::<Vec<_>>()
     };
     if local_indices.is_empty() || local_indices.len() % 3 != 0 {
         return Err(GarmentImportError::InvalidGlbIndices);
     }
 
     let base_index = positions.len();
-    for triangle in local_indices.chunks_exact(3) {
-        let local_triangle = [triangle[0], triangle[1], triangle[2]];
-        if local_triangle
+    for indices in local_indices.chunks_exact(3) {
+        let triangle = [indices[0], indices[1], indices[2]];
+        if triangle
             .into_iter()
-            .any(|index| index >= vertex_count)
+            .any(|index| index >= primitive_positions.len())
         {
             return Err(GarmentImportError::InvalidGlbIndices);
         }
-        if local_triangle[0] == local_triangle[1]
-            || local_triangle[1] == local_triangle[2]
-            || local_triangle[0] == local_triangle[2]
+        if triangle[0] == triangle[1]
+            || triangle[1] == triangle[2]
+            || triangle[0] == triangle[2]
+            || triangle_area_squared(&primitive_positions, triangle) <= f64::EPSILON
         {
-            return Err(GarmentImportError::DegenerateGlbTriangle);
-        }
-        if triangle_area_squared(&primitive_positions, local_triangle) <= f64::EPSILON {
             return Err(GarmentImportError::DegenerateGlbTriangle);
         }
 
         triangles.push([
             base_index
-                .checked_add(local_triangle[0])
+                .checked_add(triangle[0])
                 .ok_or(GarmentImportError::InvalidGlbIndices)?,
             base_index
-                .checked_add(local_triangle[1])
+                .checked_add(triangle[1])
                 .ok_or(GarmentImportError::InvalidGlbIndices)?,
             base_index
-                .checked_add(local_triangle[2])
+                .checked_add(triangle[2])
                 .ok_or(GarmentImportError::InvalidGlbIndices)?,
         ]);
     }
@@ -266,7 +265,6 @@ mod tests {
     #[test]
     fn imports_transformed_static_triangle_from_glb() {
         let bytes = triangle_glb(4, true, true);
-
         let asset = GlbGarmentImporter.import(&bytes).expect("valid GLB garment");
 
         assert_eq!(asset.source_format(), GarmentSourceFormat::Glb);
@@ -284,7 +282,6 @@ mod tests {
     #[test]
     fn imports_unindexed_triangle_mode() {
         let bytes = triangle_glb(4, false, true);
-
         let asset = GlbGarmentImporter.import(&bytes).expect("valid unindexed GLB garment");
 
         assert_eq!(asset.triangles(), &[[0, 1, 2]]);
@@ -299,29 +296,21 @@ mod tests {
             stretch_compliance: 1.0e-7,
             bending_compliance: 1.0e-3,
         };
-
         let first = TriangleMeshCloth::new(asset.positions(), asset.triangles(), config)
             .expect("GLB garment must initialize cloth");
         let second = TriangleMeshCloth::new(asset.positions(), asset.triangles(), config)
             .expect("same GLB garment must initialize cloth");
 
         assert_eq!(first.state_fingerprint(), second.state_fingerprint());
-    }
-
-    #[test]
-    fn glb_geometry_fingerprint_is_stable() {
-        let bytes = triangle_glb(4, true, true);
-
-        let first = GlbGarmentImporter.import(&bytes).unwrap();
-        let second = GlbGarmentImporter.import(&bytes).unwrap();
-
-        assert_eq!(first.simulation_fingerprint(), second.simulation_fingerprint());
+        assert_eq!(
+            GlbGarmentImporter.import(&bytes).unwrap().simulation_fingerprint(),
+            asset.simulation_fingerprint()
+        );
     }
 
     #[test]
     fn rejects_non_triangle_primitive_mode() {
         let bytes = triangle_glb(1, true, true);
-
         let error = GlbGarmentImporter
             .import(&bytes)
             .expect_err("line mode must not be interpreted as cloth triangles");
@@ -330,23 +319,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_external_geometry_buffer() {
-        let bytes = triangle_glb(4, true, false);
-
-        let error = GlbGarmentImporter
-            .import(&bytes)
-            .expect_err("external buffer must fail closed");
-
-        assert_eq!(error, GarmentImportError::ExternalGlbBuffer);
-    }
-
-    #[test]
-    fn rejects_non_glb_input() {
-        let error = GlbGarmentImporter
-            .import(br#"{"asset":{"version":"2.0"}}"#)
-            .expect_err("JSON glTF is not the single-upload GLB path");
-
-        assert_eq!(error, GarmentImportError::InvalidGlb);
+    fn rejects_external_geometry_buffer_and_plain_json_gltf() {
+        let external = triangle_glb(4, true, false);
+        assert_eq!(
+            GlbGarmentImporter.import(&external).unwrap_err(),
+            GarmentImportError::ExternalGlbBuffer
+        );
+        assert_eq!(
+            GlbGarmentImporter
+                .import(br#"{"asset":{"version":"2.0"}}"#)
+                .unwrap_err(),
+            GarmentImportError::InvalidGlb
+        );
     }
 
     fn triangle_glb(mode: u32, indexed: bool, embedded_buffer: bool) -> Vec<u8> {
@@ -372,7 +356,7 @@ mod tests {
         } else {
             ""
         };
-        let primitive_indices = if indexed { r#",\"indices\":1"# } else { "" };
+        let primitive_indices = if indexed { r#","indices":1"# } else { "" };
         let buffer = if embedded_buffer {
             format!(r#"{{"byteLength":{}}}"#, binary.len())
         } else {
@@ -399,11 +383,7 @@ mod tests {
             binary_chunk.push(0);
         }
 
-        let binary_chunk_size = if binary.is_some() {
-            8 + binary_chunk.len()
-        } else {
-            0
-        };
+        let binary_chunk_size = binary.map_or(0, |_| 8 + binary_chunk.len());
         let total_length = 12 + 8 + json_chunk.len() + binary_chunk_size;
         let mut output = Vec::with_capacity(total_length);
         output.extend_from_slice(b"glTF");
