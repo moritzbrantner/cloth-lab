@@ -89,8 +89,12 @@ impl GarmentImporter for ObjGarmentImporter {
 
         for (line_index, raw_line) in source.lines().enumerate() {
             let line_number = line_index + 1;
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
+            let line = raw_line
+                .split('#')
+                .next()
+                .unwrap_or_default()
+                .trim();
+            if line.is_empty() {
                 continue;
             }
 
@@ -277,6 +281,15 @@ mod tests {
     #[test]
     fn supports_relative_obj_indices() {
         let source = b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf -3/-1 -2/-1 -1/-1\n";
+
+        let asset = ObjGarmentImporter.import(source).expect("valid OBJ");
+
+        assert_eq!(asset.triangles(), &[[0, 1, 2]]);
+    }
+
+    #[test]
+    fn accepts_inline_comments() {
+        let source = b"v 0 0 0 # origin\nv 1 0 0\nv 0 1 0\nf 1 2 3 # front panel\n";
 
         let asset = ObjGarmentImporter.import(source).expect("valid OBJ");
 
