@@ -107,10 +107,8 @@ fn append_node(
         return Err(GarmentImportError::UnsupportedGlbMorphTargets);
     }
 
-    let world_transform = multiply_matrices(
-        parent_transform,
-        matrix_to_f64(node.transform().matrix()),
-    );
+    let world_transform =
+        multiply_matrices(parent_transform, matrix_to_f64(node.transform().matrix()));
     if !matrix_is_finite(world_transform) {
         return Err(GarmentImportError::NonFiniteGlbGeometry);
     }
@@ -232,10 +230,7 @@ fn matrix_is_finite(matrix: Matrix4) -> bool {
         .all(|component| component.is_finite())
 }
 
-fn transform_position(
-    matrix: Matrix4,
-    [x, y, z]: [f32; 3],
-) -> Result<Vec3, GarmentImportError> {
+fn transform_position(matrix: Matrix4, [x, y, z]: [f32; 3]) -> Result<Vec3, GarmentImportError> {
     let [x, y, z] = [f64::from(x), f64::from(y), f64::from(z)];
     let position = Vec3::new(
         matrix[0][0] * x + matrix[1][0] * y + matrix[2][0] * z + matrix[3][0],
@@ -265,7 +260,9 @@ mod tests {
     #[test]
     fn imports_transformed_static_triangle_from_glb() {
         let bytes = triangle_glb(4, true, true);
-        let asset = GlbGarmentImporter.import(&bytes).expect("valid GLB garment");
+        let asset = GlbGarmentImporter
+            .import(&bytes)
+            .expect("valid GLB garment");
 
         assert_eq!(asset.source_format(), GarmentSourceFormat::Glb);
         assert_eq!(
@@ -282,7 +279,9 @@ mod tests {
     #[test]
     fn imports_unindexed_triangle_mode() {
         let bytes = triangle_glb(4, false, true);
-        let asset = GlbGarmentImporter.import(&bytes).expect("valid unindexed GLB garment");
+        let asset = GlbGarmentImporter
+            .import(&bytes)
+            .expect("valid unindexed GLB garment");
 
         assert_eq!(asset.triangles(), &[[0, 1, 2]]);
     }
@@ -290,7 +289,9 @@ mod tests {
     #[test]
     fn imported_glb_enters_triangle_mesh_simulation_deterministically() {
         let bytes = triangle_glb(4, true, true);
-        let asset = GlbGarmentImporter.import(&bytes).expect("valid GLB garment");
+        let asset = GlbGarmentImporter
+            .import(&bytes)
+            .expect("valid GLB garment");
         let config = TriangleMeshClothConfig {
             particle_mass: 1.0,
             stretch_compliance: 1.0e-7,
@@ -303,7 +304,10 @@ mod tests {
 
         assert_eq!(first.state_fingerprint(), second.state_fingerprint());
         assert_eq!(
-            GlbGarmentImporter.import(&bytes).unwrap().simulation_fingerprint(),
+            GlbGarmentImporter
+                .import(&bytes)
+                .unwrap()
+                .simulation_fingerprint(),
             asset.simulation_fingerprint()
         );
     }
@@ -335,9 +339,7 @@ mod tests {
 
     fn triangle_glb(mode: u32, indexed: bool, embedded_buffer: bool) -> Vec<u8> {
         let mut binary = Vec::new();
-        for component in [
-            0.0_f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
-        ] {
+        for component in [0.0_f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
             binary.extend_from_slice(&component.to_le_bytes());
         }
         if indexed {
