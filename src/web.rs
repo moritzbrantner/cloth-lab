@@ -55,7 +55,9 @@ impl BrowserClothSession {
     #[wasm_bindgen(js_name = fromDemo)]
     pub fn from_demo(resolution: u32, preset: &str) -> Result<BrowserClothSession, JsValue> {
         if !(DEMO_MIN_RESOLUTION..=DEMO_MAX_RESOLUTION).contains(&resolution) {
-            return Err(JsValue::from_str("demo mesh resolution must be between 6 and 40"));
+            return Err(JsValue::from_str(
+                "demo mesh resolution must be between 6 and 40",
+            ));
         }
 
         let preset = parse_preset(preset)?;
@@ -87,12 +89,9 @@ impl BrowserClothSession {
         }
 
         let parameters = preset.parameters();
-        let cloth = TriangleMeshCloth::new(
-            &positions,
-            &triangles,
-            parameters.triangle_mesh_config(1.0),
-        )
-        .map_err(js_error)?;
+        let cloth =
+            TriangleMeshCloth::new(&positions, &triangles, parameters.triangle_mesh_config(1.0))
+                .map_err(js_error)?;
         let mut session = BrowserClothSession {
             initial: cloth.clone(),
             cloth,
@@ -246,13 +245,7 @@ impl BrowserClothSession {
     }
 
     #[wasm_bindgen(js_name = movePin)]
-    pub fn move_pin(
-        &mut self,
-        particle_index: u32,
-        x: f64,
-        y: f64,
-        z: f64,
-    ) -> Result<(), JsValue> {
+    pub fn move_pin(&mut self, particle_index: u32, x: f64, y: f64, z: f64) -> Result<(), JsValue> {
         let particle_index = usize::try_from(particle_index)
             .map_err(|_| JsValue::from_str("particle index exceeds usize"))?;
         let pin = self
@@ -296,7 +289,9 @@ impl BrowserClothSession {
     #[wasm_bindgen(js_name = setSolverIterations)]
     pub fn set_solver_iterations(&mut self, iterations: u32) -> Result<(), JsValue> {
         if iterations == 0 || iterations > MAX_BROWSER_SOLVER_ITERATIONS {
-            return Err(JsValue::from_str("solver iterations must be between 1 and 64"));
+            return Err(JsValue::from_str(
+                "solver iterations must be between 1 and 64",
+            ));
         }
         self.step_config.solver_iterations = usize::try_from(iterations)
             .map_err(|_| JsValue::from_str("solver iteration count exceeds usize"))?;
@@ -306,7 +301,9 @@ impl BrowserClothSession {
     #[wasm_bindgen(js_name = setVelocityDamping)]
     pub fn set_velocity_damping(&mut self, damping: f64) -> Result<(), JsValue> {
         if !damping.is_finite() || !(0.0..=1.0).contains(&damping) {
-            return Err(JsValue::from_str("velocity damping must be between 0 and 1"));
+            return Err(JsValue::from_str(
+                "velocity damping must be between 0 and 1",
+            ));
         }
         self.step_config.velocity_damping = damping;
         Ok(())
@@ -333,7 +330,8 @@ impl BrowserClothSession {
             let _ = self.cloth.end_particle_drag(drag);
             return Err(js_error(error));
         }
-        self.pins.insert(particle_index, BrowserPin { drag, target });
+        self.pins
+            .insert(particle_index, BrowserPin { drag, target });
         Ok(())
     }
 }
@@ -360,9 +358,7 @@ fn build_session(asset: GarmentAsset, preset: &str) -> Result<BrowserClothSessio
 }
 
 fn demo_rows(columns: usize) -> usize {
-    ((columns - 1) * DEMO_ROWS_NUMERATOR + DEMO_ROWS_DENOMINATOR / 2)
-        / DEMO_ROWS_DENOMINATOR
-        + 1
+    ((columns - 1) * DEMO_ROWS_NUMERATOR + DEMO_ROWS_DENOMINATOR / 2) / DEMO_ROWS_DENOMINATOR + 1
 }
 
 fn parse_preset(value: &str) -> Result<TextilePreset, JsValue> {
