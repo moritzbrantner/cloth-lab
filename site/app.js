@@ -3,15 +3,33 @@
 const canvas = document.querySelector("#cloth-canvas");
 const context = canvas.getContext("2d");
 const playToggle = document.querySelector("#play-toggle");
+const singleStepButton = document.querySelector("#single-step");
 const restartButton = document.querySelector("#restart");
 const slider = document.querySelector("#frame-slider");
+const timeline = document.querySelector(".timeline");
 const status = document.querySelector("#status");
+const garmentUpload = document.querySelector("#garment-upload");
+const materialPreset = document.querySelector("#material-preset");
+
+const YAW = -0.62;
+const PITCH = 0.58;
+const FIXED_STEP_MS = 1000 / 60;
+const MAX_STEPS_PER_FRAME = 4;
 
 let snapshots = null;
 let frameIndex = 0;
 let playing = true;
 let lastAdvance = 0;
+let liveAccumulator = 0;
 let projection = null;
+let wasmModulePromise = null;
+let liveSession = null;
+let livePositions = [];
+let liveTriangles = [];
+let liveStepCount = 0;
+let liveFingerprint = "";
+let currentUpload = null;
+let dragState = null;
 
 function includePoint(bounds, [x, y, z]) {
   bounds.minX = Math.min(bounds.minX, x);
@@ -28,7 +46,7 @@ function includeRadius(bounds, point, radius) {
   includePoint(bounds, [x + radius, y + radius, z + radius]);
 }
 
-function computeProjection(data) {
+function computeProjectionFromPositions(positions, capsule = null) {
   const bounds = {
     minX: Number.POSITIVE_INFINITY,
     minY: Number.POSITIVE_INFINITY,
@@ -38,16 +56,14 @@ function computeProjection(data) {
     maxZ: Number.NEGATIVE_INFINITY,
   };
 
-  for (const frame of data.frames) {
-    for (const position of frame.positions) {
-      includePoint(bounds, position);
-    }
+  for (const position of positions) {
+    includePoint(bounds, position);
   }
 
-  if (data.capsule) {
-    const radius = data.capsule.radius + data.capsule.thickness;
-    includeRadius(bounds, data.capsule.start, radius);
-    includeRadius(bounds, data.capsule.end, radius);
+  if (capsule) {
+    const radius = capsule.radius + capsule.thickness;
+    includeRadius(bounds, capsule.start, radius);
+    includeRadius(bounds, capsule.end, radius);
   }
 
   const center = [
@@ -63,6 +79,11 @@ function computeProjection(data) {
   );
 
   return { center, span };
+}
+
+function computeSnapshotProjection(data) {
+  const positions = data.frames.flatMap((frame) => frame.positions);
+  return computeProjectionFromPositions(positions, data.capsule);
 }
 
 function resizeCanvas() {
@@ -81,25 +102,24 @@ function project(position) {
   const y = position[1] - centerY;
   const z = position[2] - centerZ;
 
-  const yaw = -0.62;
-  const pitch = 0.58;
-  const yawCos = Math.cos(yaw);
-  const yawSin = Math.sin(yaw);
-  const pitchCos = Math.cos(pitch);
-  const pitchSin = Math.sin(pitch);
+  const yawCos = Math.cos(YAW);
+  const yawSin = Math.sin(YAW);
+  const pitchCos = Math.cos(PITCH);
+  const pitchSin = Math.sin(PITCH);
 
   const rotatedX = yawCos * x - yawSin * z;
   const yawDepth = yawSin * x + yawCos * z;
   const rotatedY = pitchCos * y - pitchSin * yawDepth;
   const depth = pitchSin * y + pitchCos * yawDepth;
 
-  const scale = Math.min(canvas.width, canvas.height) / (projection.span * 1.55);
+  const baseScale = Math.min(canvas.width, canvas.height) / (projection.span * 1.55);
   const perspective = 1 / Math.max(0.68, 1 + depth / (projection.span * 4.5));
 
   return {
-    x: canvas.width / 2 + rotatedX * scale * perspective,
-    y: canvas.height / 2 - rotatedY * scale * perspective,
+    x: canvas.width / 2 + rotatedX * baseScale * perspective,
+    y: canvas.height / 2 - rotatedY * baseScale * perspective,
     depth,
+    scale: baseScale * perspective,
   };
 }
 
@@ -147,15 +167,9 @@ function drawCapsule(capsule) {
   context.restore();
 }
 
-function drawFrame() {
-  if (!snapshots) {
-    return;
-  }
-
-  resizeCanvas();
-  const frame = snapshots.frames[frameIndex];
-  const projected = frame.positions.map(project);
-  const triangles = snapshots.triangles
+function drawSurface(positions, triangles, pinned = [], selectedIndex = null) {
+  const projected = positions.map(project);
+  const orderedTriangles = triangles
     .map((triangle) => ({
       triangle,
       depth:
@@ -166,12 +180,8 @@ function drawFrame() {
     }))
     .sort((a, b) => a.depth - b.depth);
 
-  context.clearRect(0, 0, canvas.width, canvas.height);
   context.lineJoin = "round";
-
-  drawCapsule(snapshots.capsule);
-
-  for (const { triangle } of triangles) {
+  for (const { triangle } of orderedTriangles) {
     const a = projected[triangle[0]];
     const b = projected[triangle[1]];
     const c = projected[triangle[2]];
@@ -188,7 +198,7 @@ function drawFrame() {
     context.stroke();
   }
 
-  for (const pinnedIndex of snapshots.pinned) {
+  for (const pinnedIndex of pinned) {
     const point = projected[pinnedIndex];
     context.beginPath();
     context.arc(point.x, point.y, Math.max(3, canvas.width / 280), 0, Math.PI * 2);
@@ -196,12 +206,78 @@ function drawFrame() {
     context.fill();
   }
 
+  if (selectedIndex !== null) {
+    const point = projected[selectedIndex];
+    context.beginPath();
+    context.arc(point.x, point.y, Math.max(5, canvas.width / 220), 0, Math.PI * 2);
+    context.strokeStyle = "#f0c36d";
+    context.lineWidth = Math.max(2, canvas.width / 900);
+    context.stroke();
+  }
+
+  return projected;
+}
+
+function drawFrame() {
+  if (!projection) {
+    return;
+  }
+
+  resizeCanvas();
+  context.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (liveSession) {
+    drawSurface(livePositions, liveTriangles, [], dragState?.index ?? null);
+    return;
+  }
+
+  if (!snapshots) {
+    return;
+  }
+
+  const frame = snapshots.frames[frameIndex];
+  drawCapsule(snapshots.capsule);
+  drawSurface(frame.positions, snapshots.triangles, snapshots.pinned);
   slider.value = String(frameIndex);
   status.textContent = `${snapshots.materialPreset} · step ${frame.step} · fingerprint ${frame.fingerprint} · stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · bend ${frame.maxBendingError.toExponential(2)} · contacts ${frame.collisionProjections} · friction ${frame.frictionCorrections}`;
 }
 
 function tick(timestamp) {
-  if (snapshots && playing && timestamp - lastAdvance >= 1000 / 30) {
+  if (liveSession) {
+    if (playing) {
+      if (lastAdvance === 0) {
+        lastAdvance = timestamp;
+      }
+      const elapsed = Math.min(100, Math.max(0, timestamp - lastAdvance));
+      lastAdvance = timestamp;
+      liveAccumulator += elapsed;
+      let stepped = false;
+      let steps = 0;
+      while (liveAccumulator >= FIXED_STEP_MS && steps < MAX_STEPS_PER_FRAME) {
+        try {
+          liveSession.step();
+        } catch (error) {
+          setPlaying(false);
+          status.textContent = `Simulation stopped: ${formatError(error)}`;
+          break;
+        }
+        liveAccumulator -= FIXED_STEP_MS;
+        liveStepCount += 1;
+        steps += 1;
+        stepped = true;
+      }
+      if (steps === MAX_STEPS_PER_FRAME) {
+        liveAccumulator = Math.min(liveAccumulator, FIXED_STEP_MS);
+      }
+      if (stepped) {
+        refreshLiveGeometry(liveStepCount % 30 === 0);
+      }
+    } else {
+      lastAdvance = timestamp;
+      liveAccumulator = 0;
+    }
+    drawFrame();
+  } else if (snapshots && playing && timestamp - lastAdvance >= 1000 / 30) {
     frameIndex = (frameIndex + 1) % snapshots.frames.length;
     lastAdvance = timestamp;
     drawFrame();
@@ -212,25 +288,363 @@ function tick(timestamp) {
 function setPlaying(nextPlaying) {
   playing = nextPlaying;
   playToggle.textContent = playing ? "Pause" : "Play";
+  lastAdvance = 0;
+  liveAccumulator = 0;
+}
+
+function flatPositionsToVectors(values) {
+  const flat = Array.from(values);
+  if (flat.length === 0 || flat.length % 3 !== 0) {
+    throw new Error("Rust solver returned invalid position data");
+  }
+  const positions = [];
+  for (let index = 0; index < flat.length; index += 3) {
+    const position = [flat[index], flat[index + 1], flat[index + 2]];
+    if (!position.every(Number.isFinite)) {
+      throw new Error("Rust solver returned non-finite position data");
+    }
+    positions.push(position);
+  }
+  return positions;
+}
+
+function flatTrianglesToVectors(values) {
+  const flat = Array.from(values);
+  if (flat.length === 0 || flat.length % 3 !== 0) {
+    throw new Error("Rust solver returned invalid triangle data");
+  }
+  const triangles = [];
+  for (let index = 0; index < flat.length; index += 3) {
+    triangles.push([flat[index], flat[index + 1], flat[index + 2]]);
+  }
+  return triangles;
+}
+
+function refreshLiveGeometry(refreshFingerprint = false) {
+  livePositions = flatPositionsToVectors(liveSession.positions());
+  liveTriangles = flatTrianglesToVectors(liveSession.triangles());
+  if (refreshFingerprint || liveFingerprint === "") {
+    liveFingerprint = liveSession.fingerprint();
+  }
+  updateLiveStatus();
+}
+
+function updateLiveStatus() {
+  if (!liveSession || !currentUpload) {
+    return;
+  }
+  status.textContent = `${currentUpload.name} · ${materialPreset.value} · ${liveSession.vertexCount()} vertices · ${liveSession.triangleCount()} triangles · step ${liveStepCount} · fingerprint ${liveFingerprint}`;
+}
+
+async function loadWasmModule() {
+  if (!wasmModulePromise) {
+    wasmModulePromise = import("./pkg/cloth_lab.js").then(async (module) => {
+      await module.default();
+      return module;
+    });
+  }
+  return wasmModulePromise;
+}
+
+function extensionOf(filename) {
+  const dot = filename.lastIndexOf(".");
+  return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
+}
+
+async function activateUpload(upload) {
+  status.textContent = `Loading ${upload.name}…`;
+  const module = await loadWasmModule();
+  const preset = materialPreset.value;
+  let session;
+  if (upload.extension === "obj") {
+    session = module.BrowserClothSession.fromObj(upload.bytes, preset);
+  } else if (upload.extension === "glb") {
+    session = module.BrowserClothSession.fromGlb(upload.bytes, preset);
+  } else {
+    throw new Error("supported garment uploads are .obj and self-contained .glb files");
+  }
+
+  if (liveSession && typeof liveSession.free === "function") {
+    liveSession.free();
+  }
+  liveSession = session;
+  currentUpload = upload;
+  liveStepCount = 0;
+  liveFingerprint = "";
+  dragState = null;
+  refreshLiveGeometry(true);
+  projection = computeProjectionFromPositions(livePositions);
+  timeline.hidden = true;
+  canvas.classList.add("interactive");
+  slider.disabled = true;
+  playToggle.disabled = false;
+  singleStepButton.disabled = false;
+  restartButton.disabled = false;
+  setPlaying(false);
+  drawFrame();
+}
+
+function formatError(error) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function canvasPoint(event) {
+  const bounds = canvas.getBoundingClientRect();
+  return {
+    x: ((event.clientX - bounds.left) / bounds.width) * canvas.width,
+    y: ((event.clientY - bounds.top) / bounds.height) * canvas.height,
+  };
+}
+
+function nearestLiveParticle(point) {
+  let bestIndex = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < livePositions.length; index += 1) {
+    const projected = project(livePositions[index]);
+    const distance = Math.hypot(projected.x - point.x, projected.y - point.y);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  }
+  const threshold = Math.max(14 * Math.min(window.devicePixelRatio || 1, 2), canvas.width / 70);
+  return bestDistance <= threshold ? bestIndex : null;
+}
+
+function beginCanvasDrag(event) {
+  if (!liveSession || dragState) {
+    return;
+  }
+  const point = canvasPoint(event);
+  const index = nearestLiveParticle(point);
+  if (index === null) {
+    return;
+  }
+
+  try {
+    liveSession.beginDrag(index);
+  } catch (error) {
+    status.textContent = `Cannot drag vertex: ${formatError(error)}`;
+    return;
+  }
+
+  const origin = [...livePositions[index]];
+  const projected = project(origin);
+  dragState = {
+    index,
+    pointerId: event.pointerId,
+    startX: point.x,
+    startY: point.y,
+    origin,
+    scale: Math.max(projected.scale, 1e-9),
+  };
+  canvas.setPointerCapture(event.pointerId);
+  canvas.classList.add("dragging");
+  event.preventDefault();
+  drawFrame();
+}
+
+function updateCanvasDrag(event) {
+  if (!liveSession || !dragState || event.pointerId !== dragState.pointerId) {
+    return;
+  }
+
+  const point = canvasPoint(event);
+  const dx = (point.x - dragState.startX) / dragState.scale;
+  const dy = (point.y - dragState.startY) / dragState.scale;
+  const yawCos = Math.cos(YAW);
+  const yawSin = Math.sin(YAW);
+  const pitchCos = Math.cos(PITCH);
+  const pitchSin = Math.sin(PITCH);
+  const right = [yawCos, 0, -yawSin];
+  const up = [-yawSin * pitchSin, pitchCos, -yawCos * pitchSin];
+  const target = dragState.origin.map(
+    (value, axis) => value + right[axis] * dx - up[axis] * dy,
+  );
+
+  try {
+    liveSession.dragTo(target[0], target[1], target[2]);
+    refreshLiveGeometry(false);
+    drawFrame();
+  } catch (error) {
+    status.textContent = `Drag stopped: ${formatError(error)}`;
+    finishCanvasDrag(event);
+  }
+  event.preventDefault();
+}
+
+function finishCanvasDrag(event) {
+  if (!liveSession || !dragState || event.pointerId !== dragState.pointerId) {
+    return;
+  }
+  try {
+    liveSession.endDrag();
+    liveFingerprint = liveSession.fingerprint();
+    updateLiveStatus();
+  } catch (error) {
+    status.textContent = `Drag release failed: ${formatError(error)}`;
+  }
+  if (canvas.hasPointerCapture(event.pointerId)) {
+    canvas.releasePointerCapture(event.pointerId);
+  }
+  dragState = null;
+  canvas.classList.remove("dragging");
+  event.preventDefault();
+  drawFrame();
+}
+
+function validateSnapshots(data) {
+  if (!Array.isArray(data.frames) || data.frames.length === 0) {
+    throw new Error("snapshot payload has no frames");
+  }
+  if (
+    !data.capsule ||
+    !Array.isArray(data.capsule.start) ||
+    !Array.isArray(data.capsule.end)
+  ) {
+    throw new Error("snapshot payload has no capsule collider metadata");
+  }
+  if (typeof data.materialPreset !== "string" || data.materialPreset.length === 0) {
+    throw new Error("snapshot payload has no material preset evidence");
+  }
+  if (
+    !data.materialParameters ||
+    !Number.isFinite(data.materialParameters.stretchCompliance) ||
+    !Number.isFinite(data.materialParameters.shearCompliance) ||
+    !Number.isFinite(data.materialParameters.bendingCompliance) ||
+    !Number.isFinite(data.materialParameters.frictionCoefficient)
+  ) {
+    throw new Error("snapshot payload has no raw material parameter evidence");
+  }
+  if (!Array.isArray(data.presetSummaries) || data.presetSummaries.length !== 4) {
+    throw new Error("snapshot payload has no four-preset qualitative evidence");
+  }
+  if (
+    !data.presetSummaries.every(
+      (summary) =>
+        typeof summary.name === "string" &&
+        Number.isFinite(summary.bottomMiddleY) &&
+        Number.isFinite(summary.maxStretchError) &&
+        Number.isFinite(summary.maxShearError) &&
+        Number.isFinite(summary.maxBendingError) &&
+        Number.isInteger(summary.collisionProjections) &&
+        Number.isInteger(summary.frictionCorrections),
+    )
+  ) {
+    throw new Error("snapshot payload has invalid material fixture evidence");
+  }
+  if (
+    !data.selfCollisionFixture ||
+    !Number.isFinite(data.selfCollisionFixture.thickness) ||
+    !Number.isFinite(data.selfCollisionFixture.outputY) ||
+    !Number.isInteger(data.selfCollisionFixture.broadPhasePairs) ||
+    !Number.isInteger(data.selfCollisionFixture.vertexTriangleCandidates) ||
+    !Number.isInteger(data.selfCollisionFixture.adjacencyExclusions) ||
+    !Number.isInteger(data.selfCollisionFixture.narrowPhaseTests) ||
+    data.selfCollisionFixture.projections !== 1 ||
+    Math.abs(data.selfCollisionFixture.outputY - data.selfCollisionFixture.thickness) > 1e-10
+  ) {
+    throw new Error("snapshot payload has invalid vertex-triangle self-collision evidence");
+  }
+  if (!data.frames.every((frame) => Number.isFinite(frame.maxShearError))) {
+    throw new Error("snapshot payload has no shear error evidence");
+  }
+  if (!data.frames.every((frame) => Number.isFinite(frame.maxBendingError))) {
+    throw new Error("snapshot payload has no bending error evidence");
+  }
+  if (!data.frames.every((frame) => Number.isInteger(frame.frictionCorrections))) {
+    throw new Error("snapshot payload has no friction correction evidence");
+  }
 }
 
 playToggle.addEventListener("click", () => {
   setPlaying(!playing);
 });
 
+singleStepButton.addEventListener("click", () => {
+  setPlaying(false);
+  if (liveSession) {
+    try {
+      liveSession.step();
+      liveStepCount += 1;
+      refreshLiveGeometry(true);
+      drawFrame();
+    } catch (error) {
+      status.textContent = `Simulation step failed: ${formatError(error)}`;
+    }
+    return;
+  }
+  if (snapshots) {
+    frameIndex = (frameIndex + 1) % snapshots.frames.length;
+    drawFrame();
+  }
+});
+
 restartButton.addEventListener("click", () => {
+  if (liveSession) {
+    liveSession.reset();
+    liveStepCount = 0;
+    liveFingerprint = "";
+    dragState = null;
+    canvas.classList.remove("dragging");
+    refreshLiveGeometry(true);
+    projection = computeProjectionFromPositions(livePositions);
+    setPlaying(false);
+    drawFrame();
+    return;
+  }
   frameIndex = 0;
-  lastAdvance = 0;
   setPlaying(true);
   drawFrame();
 });
 
 slider.addEventListener("input", () => {
+  if (liveSession) {
+    return;
+  }
   frameIndex = Number(slider.value);
   setPlaying(false);
   drawFrame();
 });
 
+garmentUpload.addEventListener("change", async () => {
+  const file = garmentUpload.files?.[0];
+  if (!file) {
+    return;
+  }
+  const extension = extensionOf(file.name);
+  if (extension !== "obj" && extension !== "glb") {
+    status.textContent = "Unsupported garment file. Choose an OBJ or self-contained GLB file.";
+    return;
+  }
+
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const upload = { name: file.name, extension, bytes };
+    await activateUpload(upload);
+  } catch (error) {
+    status.textContent = `Garment import failed: ${formatError(error)}`;
+  }
+});
+
+materialPreset.addEventListener("change", async () => {
+  if (!currentUpload) {
+    return;
+  }
+  try {
+    await activateUpload(currentUpload);
+  } catch (error) {
+    status.textContent = `Could not apply textile preset: ${formatError(error)}`;
+  }
+});
+
+canvas.addEventListener("pointerdown", beginCanvasDrag);
+canvas.addEventListener("pointermove", updateCanvasDrag);
+canvas.addEventListener("pointerup", finishCanvasDrag);
+canvas.addEventListener("pointercancel", finishCanvasDrag);
 window.addEventListener("resize", drawFrame);
 
 fetch("frames.json")
@@ -241,77 +655,18 @@ fetch("frames.json")
     return response.json();
   })
   .then((data) => {
-    if (!Array.isArray(data.frames) || data.frames.length === 0) {
-      throw new Error("snapshot payload has no frames");
-    }
-    if (
-      !data.capsule ||
-      !Array.isArray(data.capsule.start) ||
-      !Array.isArray(data.capsule.end)
-    ) {
-      throw new Error("snapshot payload has no capsule collider metadata");
-    }
-    if (typeof data.materialPreset !== "string" || data.materialPreset.length === 0) {
-      throw new Error("snapshot payload has no material preset evidence");
-    }
-    if (
-      !data.materialParameters ||
-      !Number.isFinite(data.materialParameters.stretchCompliance) ||
-      !Number.isFinite(data.materialParameters.shearCompliance) ||
-      !Number.isFinite(data.materialParameters.bendingCompliance) ||
-      !Number.isFinite(data.materialParameters.frictionCoefficient)
-    ) {
-      throw new Error("snapshot payload has no raw material parameter evidence");
-    }
-    if (!Array.isArray(data.presetSummaries) || data.presetSummaries.length !== 4) {
-      throw new Error("snapshot payload has no four-preset qualitative evidence");
-    }
-    if (
-      !data.presetSummaries.every(
-        (summary) =>
-          typeof summary.name === "string" &&
-          Number.isFinite(summary.bottomMiddleY) &&
-          Number.isFinite(summary.maxStretchError) &&
-          Number.isFinite(summary.maxShearError) &&
-          Number.isFinite(summary.maxBendingError) &&
-          Number.isInteger(summary.collisionProjections) &&
-          Number.isInteger(summary.frictionCorrections),
-      )
-    ) {
-      throw new Error("snapshot payload has invalid material fixture evidence");
-    }
-    if (
-      !data.selfCollisionFixture ||
-      !Number.isFinite(data.selfCollisionFixture.thickness) ||
-      !Number.isFinite(data.selfCollisionFixture.outputY) ||
-      !Number.isInteger(data.selfCollisionFixture.broadPhasePairs) ||
-      !Number.isInteger(data.selfCollisionFixture.vertexTriangleCandidates) ||
-      !Number.isInteger(data.selfCollisionFixture.adjacencyExclusions) ||
-      !Number.isInteger(data.selfCollisionFixture.narrowPhaseTests) ||
-      data.selfCollisionFixture.projections !== 1 ||
-      Math.abs(data.selfCollisionFixture.outputY - data.selfCollisionFixture.thickness) > 1e-10
-    ) {
-      throw new Error("snapshot payload has invalid vertex-triangle self-collision evidence");
-    }
-    if (!data.frames.every((frame) => Number.isFinite(frame.maxShearError))) {
-      throw new Error("snapshot payload has no shear error evidence");
-    }
-    if (!data.frames.every((frame) => Number.isFinite(frame.maxBendingError))) {
-      throw new Error("snapshot payload has no bending error evidence");
-    }
-    if (!data.frames.every((frame) => Number.isInteger(frame.frictionCorrections))) {
-      throw new Error("snapshot payload has no friction correction evidence");
-    }
-
+    validateSnapshots(data);
     snapshots = data;
-    projection = computeProjection(data);
+    projection = computeSnapshotProjection(data);
     slider.max = String(data.frames.length - 1);
     slider.disabled = false;
     playToggle.disabled = false;
+    singleStepButton.disabled = false;
     restartButton.disabled = false;
     drawFrame();
-    window.requestAnimationFrame(tick);
   })
   .catch((error) => {
-    status.textContent = `Demo unavailable: ${error.message}`;
+    status.textContent = `Reference demo unavailable: ${formatError(error)}. Garment upload can still be used.`;
   });
+
+window.requestAnimationFrame(tick);
