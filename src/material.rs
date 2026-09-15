@@ -213,8 +213,14 @@ mod tests {
         assert_eq!(config.shear_compliance, parameters.shear_compliance);
         assert_eq!(config.bending_compliance, parameters.bending_compliance);
         assert_eq!(mesh_config.particle_mass, 2.5);
-        assert_eq!(mesh_config.stretch_compliance, parameters.stretch_compliance);
-        assert_eq!(mesh_config.bending_compliance, parameters.bending_compliance);
+        assert_eq!(
+            mesh_config.stretch_compliance,
+            parameters.stretch_compliance
+        );
+        assert_eq!(
+            mesh_config.bending_compliance,
+            parameters.bending_compliance
+        );
         assert_eq!(
             parameters.contact_config().friction_coefficient,
             parameters.friction_coefficient
