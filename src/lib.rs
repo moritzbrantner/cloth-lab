@@ -12,9 +12,10 @@ mod math;
 mod self_collision;
 
 pub use cloth::{
-    BendingConstraint, CapsuleCollider, Cloth, ClothCollider, ClothError, ContactConfig,
-    DistanceConstraint, FixedStepConfig, Particle, RectangularClothConfig, SphereCollider,
-    StepReport, TriangleMeshCloth, TriangleMeshClothConfig, TriangleMeshClothError,
+    BendingConstraint, CapsuleCollider, Cloth, ClothCollider, ClothError, ClothInteractionError,
+    ContactConfig, DistanceConstraint, FixedStepConfig, Particle, ParticleDrag,
+    RectangularClothConfig, SphereCollider, StepReport, TriangleMeshCloth,
+    TriangleMeshClothConfig, TriangleMeshClothError,
 };
 pub use garment::{
     GarmentAsset, GarmentImportError, GarmentImporter, GarmentSourceFormat, ObjGarmentImporter,
