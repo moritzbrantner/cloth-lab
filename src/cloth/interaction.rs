@@ -1,5 +1,3 @@
-use core::fmt;
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ParticleDrag {
     particle_index: usize,
