@@ -81,7 +81,7 @@ See [docs/garment-formats.md](docs/garment-formats.md) for the format rationale 
 - Add camera and inspection controls without coupling them to the solver.
 - Add debug views for constraints, collisions, normals, self-collision contacts, and solver error.
 
-**Progress:** deterministic begin/update/end particle-drag inputs now exist for both rectangular and imported triangle-mesh cloth. A drag temporarily makes the selected particle kinematic, resets previous position on target updates/release, rejects invalid targets fail-closed, and replays identically from the same recorded targets. The next slice is viewer/browser picking and upload controls over this core input API, plus pause/single-step/reset.
+**Progress:** deterministic begin/update/end particle-drag inputs exist for both rectangular and imported triangle-mesh cloth. The Pages viewer now has a Rust/WASM session boundary over those inputs: OBJ and self-contained GLB uploads can be normalized and simulated live, textile presets can be selected explicitly, and the browser provides pause/play, deterministic single-step, reset, and pointer/touch vertex dragging while JavaScript remains renderer/input glue rather than simulation authority. The existing generated snapshot fixture remains the default deterministic evidence path. Remaining interactive work includes pin/attachment editing, richer normalized-asset inspection and debug views, and eventually the planned wgpu viewer once that provides concrete value over the current canvas consumer.
 
 **Acceptance:** a user can upload a supported garment, inspect the normalized asset, start/pause/step/reset its simulation, and manipulate supported interactive inputs while replay from the same asset and recorded inputs remains deterministic.
 
