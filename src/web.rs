@@ -16,17 +16,13 @@ pub struct BrowserClothSession {
 impl BrowserClothSession {
     #[wasm_bindgen(js_name = fromObj)]
     pub fn from_obj(bytes: &[u8], preset: &str) -> Result<BrowserClothSession, JsValue> {
-        let asset = ObjGarmentImporter
-            .import(bytes)
-            .map_err(js_error)?;
+        let asset = ObjGarmentImporter.import(bytes).map_err(js_error)?;
         build_session(asset, preset)
     }
 
     #[wasm_bindgen(js_name = fromGlb)]
     pub fn from_glb(bytes: &[u8], preset: &str) -> Result<BrowserClothSession, JsValue> {
-        let asset = GlbGarmentImporter
-            .import(bytes)
-            .map_err(js_error)?;
+        let asset = GlbGarmentImporter.import(bytes).map_err(js_error)?;
         build_session(asset, preset)
     }
 
@@ -122,7 +118,8 @@ impl BrowserClothSession {
 fn build_session(asset: GarmentAsset, preset: &str) -> Result<BrowserClothSession, JsValue> {
     let preset = parse_preset(preset)?;
     let config = preset.parameters().triangle_mesh_config(1.0);
-    let cloth = TriangleMeshCloth::new(asset.positions(), asset.triangles(), config).map_err(js_error)?;
+    let cloth =
+        TriangleMeshCloth::new(asset.positions(), asset.triangles(), config).map_err(js_error)?;
     Ok(BrowserClothSession {
         initial: cloth.clone(),
         cloth,
