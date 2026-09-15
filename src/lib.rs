@@ -10,6 +10,8 @@ mod garment;
 mod material;
 mod math;
 mod self_collision;
+#[cfg(target_arch = "wasm32")]
+mod web;
 
 pub use cloth::{
     BendingConstraint, CapsuleCollider, Cloth, ClothCollider, ClothError, ClothInteractionError,
@@ -27,3 +29,5 @@ pub use self_collision::{
     SelfCollisionConfig, SelfCollisionError, SelfCollisionParticle, SelfCollisionReport,
     solve_vertex_triangle_self_collision,
 };
+#[cfg(target_arch = "wasm32")]
+pub use web::BrowserClothSession;

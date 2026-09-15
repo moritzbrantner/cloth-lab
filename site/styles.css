@@ -98,33 +98,88 @@ h2 {
   border-bottom: 1px solid #28313d;
 }
 
+.viewer-heading > div:first-child {
+  min-width: 0;
+}
+
 .viewer-heading p {
   margin-bottom: 0;
+  overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.78rem;
 }
 
 .actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-button {
+button,
+select,
+.upload-control {
+  min-height: 42px;
   border: 1px solid #38485a;
   border-radius: 8px;
-  padding: 9px 13px;
   background: #151d27;
   color: inherit;
   font: inherit;
+}
+
+button,
+select {
+  padding: 9px 13px;
+}
+
+button,
+.upload-control {
   cursor: pointer;
 }
 
-button:hover:not(:disabled) {
+button:hover:not(:disabled),
+.upload-control:hover {
   background: #1c2734;
 }
 
 button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.field,
+.upload-control {
+  display: flex;
+  align-items: center;
+}
+
+.field {
+  gap: 7px;
+  color: #a9b5c3;
+  font-size: 0.78rem;
+}
+
+.field select {
+  color: #edf2f7;
+}
+
+.upload-control {
+  position: relative;
+  padding: 9px 13px;
+}
+
+.upload-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.upload-control:focus-within {
+  outline: 2px solid #9fb5cc;
+  outline-offset: 2px;
 }
 
 canvas {
@@ -138,12 +193,25 @@ canvas {
   background-size: 32px 32px;
 }
 
+canvas.interactive {
+  cursor: grab;
+  touch-action: none;
+}
+
+canvas.interactive.dragging {
+  cursor: grabbing;
+}
+
 .timeline {
   gap: 16px;
   padding: 14px 20px 18px;
   border-top: 1px solid #28313d;
   color: #c5d0dc;
   font-size: 0.85rem;
+}
+
+.timeline[hidden] {
+  display: none;
 }
 
 .timeline input {
@@ -156,31 +224,53 @@ canvas {
   font-size: 0.9rem;
 }
 
+@media (max-width: 920px) {
+  .viewer-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+
 @media (max-width: 720px) {
   main {
     width: min(100% - 20px, 1180px);
     padding-top: 28px;
   }
 
-  .intro,
-  .viewer-heading {
+  .intro {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .intro {
-    gap: 14px;
-  }
-
-  .viewer-heading {
     gap: 14px;
   }
 
   .actions {
-    width: 100%;
+    align-items: stretch;
   }
 
+  .field,
+  .upload-control,
   button {
+    min-height: 44px;
+  }
+
+  .field {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .field select {
     flex: 1;
+    min-width: 0;
+  }
+
+  .upload-control,
+  button {
+    flex: 1 1 auto;
+    justify-content: center;
   }
 }
