@@ -18,7 +18,8 @@ pub use cloth::{
     TriangleMeshClothError,
 };
 pub use garment::{
-    GarmentAsset, GarmentImportError, GarmentImporter, GarmentSourceFormat, ObjGarmentImporter,
+    GarmentAsset, GarmentImportError, GarmentImporter, GarmentSourceFormat, GlbGarmentImporter,
+    ObjGarmentImporter,
 };
 pub use material::{TextileParameters, TextilePreset};
 pub use math::Vec3;

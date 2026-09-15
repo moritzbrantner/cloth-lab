@@ -6,8 +6,8 @@ The import boundary should distinguish **mesh interchange**, **garment construct
 
 | Priority | Format | What it gives us | Cloth Lab strategy |
 | --- | --- | --- | --- |
-| 1 | OBJ (`.obj`) | Indexed 3D geometry; commonly paired with MTL material data | Support first as a geometry-only path into `GarmentAsset`. Never infer seams, patterns, or physical textile properties from OBJ. |
-| 2 | glTF 2.0 / GLB (`.gltf`, `.glb`) | Open, web-friendly mesh/material/skin/animation interchange | Add next for browser uploads and asset preview. Keep standard glTF data separate from any vendor-specific garment metadata. Investigate CLO/Marvelous garment metadata in glTF `extras` as an optional adapter only if its schema is stable/documented. |
+| 1 | OBJ (`.obj`) | Indexed 3D geometry; commonly paired with MTL material data | Supported as a geometry-only path into `GarmentAsset`. Never infer seams, patterns, or physical textile properties from OBJ. |
+| 2 | glTF 2.0 / GLB (`.gltf`, `.glb`) | Open, web-friendly mesh/material/skin/animation interchange | Self-contained GLB static triangle geometry is supported for the upload/simulation path. Loose `.gltf` sidecars, skins, animations, morph targets, and garment metadata remain explicit future capabilities rather than being silently discarded. Investigate CLO/Marvelous garment metadata in glTF `extras` as an optional adapter only if its schema is stable/documented. |
 | 3 | DXF-AAMA / DXF-ASTM (`.dxf`, `.aam`) | Apparel-industry 2D pattern-piece interchange | Add once `GarmentAsset` has explicit pattern-piece and sewing concepts. Do not assume DXF alone contains enough information to reconstruct sewing relationships or complete product specifications. |
 | 3 | U3M | Open fashion-oriented digital material data with PBR appearance plus physical measurements | Add alongside the richer textile model. Map measured source fields explicitly into cloth material parameters; never silently substitute visual material properties for simulation physics. |
 | 4 | FBX (`.fbx`) and USD/USDZ (`.usd`, `.usda`, `.usdc`, `.usdz`) | Broad DCC scene interchange: meshes, materials, joints, animation and scene data | Useful compatibility adapters after OBJ/glTF. Imported mesh/rig data must remain distinct from cloth-specific semantics. |
@@ -18,7 +18,7 @@ The import boundary should distinguish **mesh interchange**, **garment construct
 ## Why this order
 
 1. **OBJ proves the adapter and validation boundary cheaply.** It lets us validate arbitrary triangle topology before coupling the solver to richer authoring formats.
-2. **glTF/GLB is the strongest next upload format for the web surface.** It is open and browser-friendly, and current CLO/Marvelous workflows can import/export it. The vendor tools can also emit additional garment metadata, which we can consume only as an optional extension rather than contaminating the canonical asset model.
+2. **GLB is the first web upload format.** It packages the glTF JSON and binary geometry in one file, which fits a browser upload boundary better than loose `.gltf` plus sidecars. Cloth Lab now imports self-contained static triangle GLB geometry, applies scene-node transforms deterministically, and rejects unsupported animation/skin/morph semantics rather than approximating them. Loose `.gltf` can follow if multi-file upload becomes worthwhile.
 3. **DXF is important for actual apparel patterns.** It should land after the normalized model can represent 2D pattern pieces and explicit seam pairings; otherwise we would either discard the useful semantics or invent them.
 4. **U3M is important for actual textile data.** It belongs next to material calibration, not inside a renderer-only material layer, because it can carry physical measurements as well as appearance.
 5. **FBX/USD are compatibility formats rather than the garment authority.** They help interoperate with DCC pipelines but should not define Cloth Lab's simulation model.
