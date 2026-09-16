@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 
 use spatial_kernels::{Aabb, Axis3, Body, BroadPhase, SweepAndPruneBroadPhase};
 
-use crate::{Particle, Vec3};
+use crate::{FixedStepConfig, Particle, Vec3};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SelfCollisionConfig {
@@ -144,7 +144,13 @@ pub fn solve_vertex_triangle_self_collision(
     config: SelfCollisionConfig,
 ) -> Result<SelfCollisionReport, SelfCollisionError> {
     let topology = SelfCollisionTopology::new(triangles);
-    solve_vertex_triangle_self_collision_with_topology(particles, triangles, &topology, config)
+    validate_inputs(particles, triangles, config)?;
+    Ok(solve_vertex_triangle_self_collision_prevalidated(
+        particles,
+        triangles,
+        &topology,
+        config,
+    ))
 }
 
 pub(crate) fn solve_cloth_vertex_triangle_self_collision(
@@ -152,8 +158,8 @@ pub(crate) fn solve_cloth_vertex_triangle_self_collision(
     triangles: &[[usize; 3]],
     topology: &SelfCollisionTopology,
     config: SelfCollisionConfig,
-) -> Result<SelfCollisionReport, SelfCollisionError> {
-    solve_vertex_triangle_self_collision_with_topology(particles, triangles, topology, config)
+) -> SelfCollisionReport {
+    solve_vertex_triangle_self_collision_prevalidated(particles, triangles, topology, config)
 }
 
 pub(crate) fn validate_cloth_self_collision_inputs(
@@ -164,14 +170,43 @@ pub(crate) fn validate_cloth_self_collision_inputs(
     validate_inputs(particles, triangles, config)
 }
 
-fn solve_vertex_triangle_self_collision_with_topology<P: SelfCollisionPoint>(
+pub(crate) fn validate_cloth_self_collision_step_preflight(
+    particles: &[Particle],
+    step: FixedStepConfig,
+    config: SelfCollisionConfig,
+) -> Result<(), SelfCollisionError> {
+    config.validate()?;
+    let delta_squared = step.delta_seconds * step.delta_seconds;
+    if !delta_squared.is_finite() {
+        return Err(SelfCollisionError::InvalidParticlePosition);
+    }
+    let gravity_displacement = step.gravity * delta_squared;
+    if !gravity_displacement.is_finite() {
+        return Err(SelfCollisionError::InvalidParticlePosition);
+    }
+
+    for particle in particles {
+        if particle.is_pinned() {
+            validate_broad_phase_position(particle.position(), config.thickness)?;
+            continue;
+        }
+        let velocity = particle.position() - particle.previous_position();
+        let inertial_displacement = velocity * step.velocity_damping;
+        let predicted = particle.position() + inertial_displacement + gravity_displacement;
+        if !velocity.is_finite() || !inertial_displacement.is_finite() || !predicted.is_finite() {
+            return Err(SelfCollisionError::InvalidParticlePosition);
+        }
+        validate_broad_phase_position(predicted, config.thickness)?;
+    }
+    Ok(())
+}
+
+fn solve_vertex_triangle_self_collision_prevalidated<P: SelfCollisionPoint>(
     particles: &mut [P],
     triangles: &[[usize; 3]],
     topology: &SelfCollisionTopology,
     config: SelfCollisionConfig,
-) -> Result<SelfCollisionReport, SelfCollisionError> {
-    validate_inputs(particles, triangles, config)?;
-
+) -> SelfCollisionReport {
     let bodies = broad_phase_bodies(particles, triangles, config.thickness);
     let broad_phase = SweepAndPruneBroadPhase::new(Axis3::X);
     let broad_phase_result = broad_phase.detect(&bodies);
@@ -206,7 +241,7 @@ fn solve_vertex_triangle_self_collision_with_topology<P: SelfCollisionPoint>(
         ));
     }
 
-    Ok(report)
+    report
 }
 
 fn validate_inputs<P: SelfCollisionPoint>(
@@ -223,7 +258,6 @@ fn validate_inputs<P: SelfCollisionPoint>(
         return Err(SelfCollisionError::TopologyTooLarge);
     }
 
-    let broad_phase_limit = f64::from(f32::MAX);
     for particle in particles {
         let position = particle.self_collision_position();
         let inverse_mass = particle.self_collision_inverse_mass();
@@ -233,11 +267,7 @@ fn validate_inputs<P: SelfCollisionPoint>(
         if !inverse_mass.is_finite() || inverse_mass < 0.0 {
             return Err(SelfCollisionError::InvalidInverseMass);
         }
-        for coordinate in [position.x, position.y, position.z] {
-            if coordinate.abs() + config.thickness > broad_phase_limit {
-                return Err(SelfCollisionError::BroadPhaseRangeExceeded);
-            }
-        }
+        validate_broad_phase_position(position, config.thickness)?;
     }
 
     for &[a, b, c] in triangles {
@@ -246,6 +276,22 @@ fn validate_inputs<P: SelfCollisionPoint>(
         }
         if a == b || b == c || c == a {
             return Err(SelfCollisionError::DuplicateTriangleVertex);
+        }
+    }
+    Ok(())
+}
+
+fn validate_broad_phase_position(
+    position: Vec3,
+    thickness: f64,
+) -> Result<(), SelfCollisionError> {
+    if !position.is_finite() {
+        return Err(SelfCollisionError::InvalidParticlePosition);
+    }
+    let broad_phase_limit = f64::from(f32::MAX);
+    for coordinate in [position.x, position.y, position.z] {
+        if coordinate.abs() + thickness > broad_phase_limit {
+            return Err(SelfCollisionError::BroadPhaseRangeExceeded);
         }
     }
     Ok(())
