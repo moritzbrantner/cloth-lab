@@ -86,7 +86,10 @@ fn coplanar_inverted_layers_resolve_deterministically() {
         assert_finite(&second);
     }
 
-    assert!(total_projections > 0, "coplanar inversion must exercise projection");
+    assert!(
+        total_projections > 0,
+        "coplanar inversion must exercise projection"
+    );
     assert_eq!(first.particles(), second.particles());
     assert_eq!(first.state_fingerprint(), second.state_fingerprint());
 }
@@ -127,9 +130,18 @@ fn dense_contact_stack_stays_finite_and_replays_exactly() {
         assert_finite(&second);
     }
 
-    assert!(total_candidates > 0, "dense fixture must reach the broad/narrow seam");
-    assert!(total_tests > 0, "dense fixture must execute narrow-phase tests");
-    assert!(total_projections > 0, "dense fixture must exercise projection");
+    assert!(
+        total_candidates > 0,
+        "dense fixture must reach the broad/narrow seam"
+    );
+    assert!(
+        total_tests > 0,
+        "dense fixture must execute narrow-phase tests"
+    );
+    assert!(
+        total_projections > 0,
+        "dense fixture must exercise projection"
+    );
     assert!(total_candidates >= total_tests);
     assert!(total_tests >= total_projections);
     assert_eq!(first.particles(), second.particles());
