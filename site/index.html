@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Interactive deterministic cloth simulation sandbox with mesh, textile, solver, pin, and garment controls backed by the Rust cloth-lab solver."
+      content="Interactive deterministic cloth simulation sandbox with mesh, textile, solver, pin, inspection, and garment controls backed by the Rust cloth-lab solver."
     />
     <title>cloth-lab demo</title>
     <link rel="stylesheet" href="styles.css" />
@@ -19,7 +19,7 @@
           <h1>Deterministic cloth simulation</h1>
           <p>
             Experiment with a live cloth sheet, change its mesh and material, place movable pins,
-            tune solver behavior, or upload an OBJ/GLB garment mesh.
+            inspect solver behavior, or upload an OBJ/GLB garment mesh.
           </p>
         </div>
         <a href="https://github.com/moritzbrantner/cloth-lab">Source on GitHub</a>
@@ -87,6 +87,16 @@
             </select>
           </label>
 
+          <label class="control" for="debug-view">
+            <span>Debug view</span>
+            <select id="debug-view">
+              <option value="surface">Surface</option>
+              <option value="wireframe">Wireframe</option>
+              <option value="constraints">Constraints</option>
+              <option value="normals">Normals</option>
+            </select>
+          </label>
+
           <button id="clear-pins" class="control-action" type="button" disabled>Clear pins</button>
         </div>
 
@@ -97,6 +107,36 @@
           role="img"
           aria-label="Three-dimensional rendering of a simulated cloth surface. Use the pointer tool control to drag cloth or edit pins."
         ></canvas>
+
+        <section class="inspector" aria-labelledby="inspector-title">
+          <h3 id="inspector-title">Inspection</h3>
+          <dl>
+            <div>
+              <dt>Source</dt>
+              <dd id="inspect-source">—</dd>
+            </div>
+            <div>
+              <dt>Normalized asset</dt>
+              <dd id="inspect-asset">—</dd>
+            </div>
+            <div>
+              <dt>Topology</dt>
+              <dd id="inspect-topology">—</dd>
+            </div>
+            <div>
+              <dt>Constraints</dt>
+              <dd id="inspect-constraints">—</dd>
+            </div>
+            <div>
+              <dt>Current error</dt>
+              <dd id="inspect-errors">—</dd>
+            </div>
+            <div>
+              <dt>Last step contacts</dt>
+              <dd id="inspect-contacts">—</dd>
+            </div>
+          </dl>
+        </section>
 
         <label class="timeline" for="frame-slider">
           <span>Reference timeline</span>
@@ -109,8 +149,11 @@
         Rust core compiled to WebAssembly. Mesh density changes the sheet topology while preserving its
         physical size. Textile presets map to solver compliance and contact parameters; solver controls
         change the explicit fixed-step configuration. Pins are persistent kinematic constraints whose
-        targets can be moved. Uploaded mesh formats still provide geometry only: seams, patterns,
-        measured fabric properties, skins, and animation are not inferred when unsupported by the source.
+        targets can be moved. The inspector reads authoritative topology, constraint, error, contact,
+        and normalized-asset evidence from Rust; wireframe and normal overlays are rendering-only views
+        of those authoritative positions and triangles. Uploaded mesh formats still provide geometry
+        only: seams, patterns, measured fabric properties, skins, and animation are not inferred when
+        unsupported by the source.
       </p>
     </main>
   </body>

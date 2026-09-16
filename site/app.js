@@ -21,6 +21,13 @@ const solverIterationsValue = document.querySelector("#solver-iterations-value")
 const velocityDamping = document.querySelector("#velocity-damping");
 const velocityDampingValue = document.querySelector("#velocity-damping-value");
 const interactionMode = document.querySelector("#interaction-mode");
+const debugView = document.querySelector("#debug-view");
+const inspectSource = document.querySelector("#inspect-source");
+const inspectAsset = document.querySelector("#inspect-asset");
+const inspectTopology = document.querySelector("#inspect-topology");
+const inspectConstraints = document.querySelector("#inspect-constraints");
+const inspectErrors = document.querySelector("#inspect-errors");
+const inspectContacts = document.querySelector("#inspect-contacts");
 
 const YAW = -0.62;
 const PITCH = 0.58;
@@ -28,6 +35,7 @@ const FIXED_STEP_MS = 1000 / 60;
 const MAX_STEPS_PER_FRAME = 4;
 const DEMO_ROWS_NUMERATOR = 11;
 const DEMO_ROWS_DENOMINATOR = 13;
+const MAX_NORMAL_MARKERS = 180;
 
 let snapshots = null;
 let frameIndex = 0;
@@ -39,6 +47,8 @@ let wasmModulePromise = null;
 let liveSession = null;
 let livePositions = [];
 let liveTriangles = [];
+let liveStretchEdges = [];
+let liveBendingEdges = [];
 let livePinned = [];
 let liveCapsule = null;
 let liveStepCount = 0;
@@ -187,7 +197,87 @@ function pinMarkerRadius() {
   return Math.max(4, canvas.width / 260);
 }
 
-function drawSurface(positions, triangles, pinned = [], selectedIndex = null) {
+function drawConstraintEdges(projected, edges, strokeStyle, lineWidth) {
+  if (edges.length === 0) {
+    return;
+  }
+  context.save();
+  context.beginPath();
+  for (const [leftIndex, rightIndex] of edges) {
+    const left = projected[leftIndex];
+    const right = projected[rightIndex];
+    if (!left || !right) {
+      continue;
+    }
+    context.moveTo(left.x, left.y);
+    context.lineTo(right.x, right.y);
+  }
+  context.strokeStyle = strokeStyle;
+  context.lineWidth = lineWidth;
+  context.stroke();
+  context.restore();
+}
+
+function subtract3(left, right) {
+  return [left[0] - right[0], left[1] - right[1], left[2] - right[2]];
+}
+
+function cross3(left, right) {
+  return [
+    left[1] * right[2] - left[2] * right[1],
+    left[2] * right[0] - left[0] * right[2],
+    left[0] * right[1] - left[1] * right[0],
+  ];
+}
+
+function drawNormals(positions, triangles) {
+  if (triangles.length === 0) {
+    return;
+  }
+  const stride = Math.max(1, Math.ceil(triangles.length / MAX_NORMAL_MARKERS));
+  const normalLength = projection.span * 0.045;
+  context.save();
+  context.beginPath();
+  for (let triangleIndex = 0; triangleIndex < triangles.length; triangleIndex += stride) {
+    const [aIndex, bIndex, cIndex] = triangles[triangleIndex];
+    const a = positions[aIndex];
+    const b = positions[bIndex];
+    const c = positions[cIndex];
+    if (!a || !b || !c) {
+      continue;
+    }
+    const normal = cross3(subtract3(b, a), subtract3(c, a));
+    const magnitude = Math.hypot(normal[0], normal[1], normal[2]);
+    if (!Number.isFinite(magnitude) || magnitude <= Number.EPSILON) {
+      continue;
+    }
+    const center = [
+      (a[0] + b[0] + c[0]) / 3,
+      (a[1] + b[1] + c[1]) / 3,
+      (a[2] + b[2] + c[2]) / 3,
+    ];
+    const target = center.map(
+      (value, axis) => value + (normal[axis] / magnitude) * normalLength,
+    );
+    const start = project(center);
+    const end = project(target);
+    context.moveTo(start.x, start.y);
+    context.lineTo(end.x, end.y);
+  }
+  context.strokeStyle = "rgba(240, 195, 109, 0.82)";
+  context.lineWidth = Math.max(1, canvas.width / 1100);
+  context.stroke();
+  context.restore();
+}
+
+function drawSurface(
+  positions,
+  triangles,
+  pinned = [],
+  selectedIndex = null,
+  stretchEdges = [],
+  bendingEdges = [],
+) {
   const projected = positions.map(project);
   const orderedTriangles = triangles
     .map((triangle) => ({
@@ -199,6 +289,7 @@ function drawSurface(positions, triangles, pinned = [], selectedIndex = null) {
         3,
     }))
     .sort((a, b) => a.depth - b.depth);
+  const view = debugView.value;
 
   context.lineJoin = "round";
   for (const { triangle } of orderedTriangles) {
@@ -211,11 +302,31 @@ function drawSurface(positions, triangles, pinned = [], selectedIndex = null) {
     context.lineTo(b.x, b.y);
     context.lineTo(c.x, c.y);
     context.closePath();
-    context.fillStyle = "rgba(90, 145, 205, 0.22)";
-    context.fill();
-    context.strokeStyle = "rgba(174, 205, 238, 0.34)";
+    if (view !== "wireframe") {
+      context.fillStyle = view === "constraints" ? "rgba(90, 145, 205, 0.08)" : "rgba(90, 145, 205, 0.22)";
+      context.fill();
+    }
+    context.strokeStyle =
+      view === "wireframe" ? "rgba(205, 220, 236, 0.72)" : "rgba(174, 205, 238, 0.34)";
     context.lineWidth = Math.max(1, canvas.width / 1500);
     context.stroke();
+  }
+
+  if (view === "constraints") {
+    drawConstraintEdges(
+      projected,
+      stretchEdges,
+      "rgba(116, 181, 236, 0.82)",
+      Math.max(1, canvas.width / 1250),
+    );
+    drawConstraintEdges(
+      projected,
+      bendingEdges,
+      "rgba(240, 195, 109, 0.88)",
+      Math.max(1.2, canvas.width / 1050),
+    );
+  } else if (view === "normals") {
+    drawNormals(positions, triangles);
   }
 
   for (const pinnedIndex of pinned) {
@@ -255,7 +366,14 @@ function drawFrame() {
     if (liveCapsule) {
       drawCapsule(liveCapsule);
     }
-    drawSurface(livePositions, liveTriangles, livePinned, dragState?.index ?? null);
+    drawSurface(
+      livePositions,
+      liveTriangles,
+      livePinned,
+      dragState?.index ?? null,
+      liveStretchEdges,
+      liveBendingEdges,
+    );
     return;
   }
 
@@ -268,6 +386,7 @@ function drawFrame() {
   drawSurface(frame.positions, snapshots.triangles, snapshots.pinned);
   slider.value = String(frameIndex);
   status.textContent = `${snapshots.materialPreset} · reference step ${frame.step} · fingerprint ${frame.fingerprint} · stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · bend ${frame.maxBendingError.toExponential(2)} · contacts ${frame.collisionProjections}`;
+  updateSnapshotInspector(frame);
 }
 
 function tick(timestamp) {
@@ -343,9 +462,33 @@ function flatTrianglesToVectors(values) {
   }
   const triangles = [];
   for (let index = 0; index < flat.length; index += 3) {
-    triangles.push([flat[index], flat[index + 1], flat[index + 2]]);
+    const triangle = [flat[index], flat[index + 1], flat[index + 2]];
+    if (!triangle.every((value) => Number.isInteger(value) && value >= 0)) {
+      throw new Error("Rust solver returned invalid triangle indices");
+    }
+    triangles.push(triangle);
   }
   return triangles;
+}
+
+function flatEdgesToVectors(values, vertexCount, label) {
+  const flat = Array.from(values);
+  if (flat.length % 2 !== 0) {
+    throw new Error(`Rust solver returned invalid ${label} edge data`);
+  }
+  const edges = [];
+  for (let index = 0; index < flat.length; index += 2) {
+    const edge = [flat[index], flat[index + 1]];
+    if (
+      !edge.every(
+        (value) => Number.isInteger(value) && value >= 0 && value < vertexCount,
+      )
+    ) {
+      throw new Error(`Rust solver returned invalid ${label} edge indices`);
+    }
+    edges.push(edge);
+  }
+  return edges;
 }
 
 function capsuleFromFlat(values) {
@@ -380,6 +523,17 @@ function refreshLiveGeometry(refreshFingerprint = false) {
 function refreshLiveTopology() {
   livePositions = flatPositionsToVectors(liveSession.positions());
   liveTriangles = flatTrianglesToVectors(liveSession.triangles());
+  const vertexCount = livePositions.length;
+  liveStretchEdges = flatEdgesToVectors(
+    liveSession.stretchConstraintEdges(),
+    vertexCount,
+    "stretch constraint",
+  );
+  liveBendingEdges = flatEdgesToVectors(
+    liveSession.bendingConstraintEdges(),
+    vertexCount,
+    "bending constraint",
+  );
   liveCapsule = capsuleFromFlat(liveSession.capsuleCollider());
   refreshLivePins();
   liveFingerprint = liveSession.fingerprint();
@@ -390,11 +544,54 @@ function selectedMaterialLabel() {
   return materialPreset.options[materialPreset.selectedIndex]?.textContent ?? materialPreset.value;
 }
 
+function sourceKindLabel(sourceKind) {
+  switch (sourceKind) {
+    case "generated-sheet":
+      return "Generated sheet";
+    case "obj":
+      return "OBJ upload";
+    case "glb":
+      return "GLB upload";
+    default:
+      return sourceKind || "Unknown";
+  }
+}
+
+function updateLiveInspector() {
+  if (!liveSession) {
+    return;
+  }
+  const sourceKind = liveSession.sourceKind();
+  const assetFingerprint = liveSession.normalizedAssetFingerprint();
+  const maxStretchError = liveSession.maxStretchError();
+  const maxBendingError = liveSession.maxBendingError();
+  if (!Number.isFinite(maxStretchError) || !Number.isFinite(maxBendingError)) {
+    throw new Error("Rust solver returned non-finite constraint error diagnostics");
+  }
+
+  inspectSource.textContent = sourceKindLabel(sourceKind);
+  inspectAsset.textContent = assetFingerprint || "generated topology";
+  inspectTopology.textContent = `${liveSession.vertexCount()} vertices · ${liveSession.triangleCount()} faces · ${livePinned.length} pins`;
+  inspectConstraints.textContent = `${liveSession.stretchConstraintCount()} stretch · ${liveSession.bendingConstraintCount()} bend`;
+  inspectErrors.textContent = `stretch ${maxStretchError.toExponential(2)} · bend ${maxBendingError.toExponential(2)}`;
+  inspectContacts.textContent = `${liveSession.lastCollisionProjections()} projections · ${liveSession.lastFrictionCorrections()} friction`;
+}
+
+function updateSnapshotInspector(frame) {
+  inspectSource.textContent = "Reference snapshots";
+  inspectAsset.textContent = "build-generated evidence";
+  inspectTopology.textContent = `${frame.positions.length} vertices · ${snapshots.triangles.length} faces · ${snapshots.pinned.length} pins`;
+  inspectConstraints.textContent = "not serialized";
+  inspectErrors.textContent = `stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · bend ${frame.maxBendingError.toExponential(2)}`;
+  inspectContacts.textContent = `${frame.collisionProjections} projections · ${frame.frictionCorrections} friction`;
+}
+
 function updateLiveStatus() {
   if (!liveSession) {
     return;
   }
   status.textContent = `${liveSourceLabel} · ${selectedMaterialLabel()} · ${liveSession.vertexCount()} vertices · ${liveSession.triangleCount()} faces · ${livePinned.length} pins · step ${liveStepCount} · fingerprint ${liveFingerprint}`;
+  updateLiveInspector();
 }
 
 async function loadWasmModule() {
@@ -758,7 +955,8 @@ function validateSnapshots(data) {
         Number.isFinite(frame.maxStretchError) &&
         Number.isFinite(frame.maxShearError) &&
         Number.isFinite(frame.maxBendingError) &&
-        Number.isInteger(frame.collisionProjections),
+        Number.isInteger(frame.collisionProjections) &&
+        Number.isInteger(frame.frictionCorrections),
     )
   ) {
     throw new Error("snapshot payload has invalid rendered frame evidence");
@@ -912,6 +1110,8 @@ interactionMode.addEventListener("change", () => {
   updateInteractionCursor();
   drawFrame();
 });
+
+debugView.addEventListener("change", drawFrame);
 
 clearPinsButton.addEventListener("click", () => {
   if (!liveSession || dragState) {
