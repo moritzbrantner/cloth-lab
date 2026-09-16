@@ -426,7 +426,6 @@ function moveObstacleDrag(event) {
       liveObstacle.halfLength,
     );
     syncObstacleFromSession();
-    projection = computeProjectionFromPositions(livePositions, liveCapsule);
     updateLiveStatus();
     drawFrame();
   } catch (error) {
@@ -446,6 +445,7 @@ function finishObstacleDrag(event) {
   }
   obstacleDragState = null;
   canvas.classList.remove("dragging");
+  projection = computeProjectionFromPositions(livePositions, liveCapsule);
   event.preventDefault();
   drawFrame();
 }
