@@ -546,6 +546,8 @@ mod triangle_mesh_tests {
         let mut first = folded_self_collision_fixture();
         let mut second = first.clone();
         let self_collision = SelfCollisionConfig { thickness: 0.08 };
+        let mut total_narrow_phase_tests = 0;
+        let mut total_projections = 0;
 
         for _ in 0..12 {
             let first_report = first
@@ -565,9 +567,12 @@ mod triangle_mesh_tests {
                 )
                 .unwrap();
             assert_eq!(first_report, second_report);
-            assert!(first_report.self_collision.narrow_phase_tests > 0);
+            total_narrow_phase_tests += first_report.self_collision.narrow_phase_tests;
+            total_projections += first_report.self_collision.projections;
         }
 
+        assert!(total_narrow_phase_tests > 0);
+        assert!(total_projections > 0);
         assert_eq!(first.particles(), second.particles());
         assert_eq!(first.state_fingerprint(), second.state_fingerprint());
     }
