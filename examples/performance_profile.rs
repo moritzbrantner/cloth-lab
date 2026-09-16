@@ -74,7 +74,9 @@ fn main() {
 }
 
 fn profile_config() -> ProfileConfig {
-    let smoke = std::env::args().skip(1).any(|argument| argument == "--smoke");
+    let smoke = std::env::args()
+        .skip(1)
+        .any(|argument| argument == "--smoke");
     if smoke {
         ProfileConfig {
             sample_count: SMOKE_SAMPLE_COUNT,
@@ -139,24 +141,30 @@ fn run_sample(mode: BenchmarkMode, steps_per_sample: usize) -> SampleResult {
         fingerprint = match mode {
             BenchmarkMode::ReferenceOneIteration
             | BenchmarkMode::ReferenceEightIterations
-            | BenchmarkMode::LayeredWithoutSelfCollision => cloth
-                .step(step)
-                .expect("reference benchmark step must succeed")
-                .state_fingerprint,
-            BenchmarkMode::RigidCollision => cloth
-                .step_with_contacts(step, &colliders, ContactConfig::default())
-                .expect("rigid-collision benchmark step must succeed")
-                .state_fingerprint,
-            BenchmarkMode::LayeredWithSelfCollision => cloth
-                .step_with_contacts_and_self_collision(
-                    step,
-                    &[],
-                    ContactConfig::default(),
-                    self_collision,
-                )
-                .expect("self-collision benchmark step must succeed")
-                .solver
-                .state_fingerprint,
+            | BenchmarkMode::LayeredWithoutSelfCollision => {
+                cloth
+                    .step(step)
+                    .expect("reference benchmark step must succeed")
+                    .state_fingerprint
+            }
+            BenchmarkMode::RigidCollision => {
+                cloth
+                    .step_with_contacts(step, &colliders, ContactConfig::default())
+                    .expect("rigid-collision benchmark step must succeed")
+                    .state_fingerprint
+            }
+            BenchmarkMode::LayeredWithSelfCollision => {
+                cloth
+                    .step_with_contacts_and_self_collision(
+                        step,
+                        &[],
+                        ContactConfig::default(),
+                        self_collision,
+                    )
+                    .expect("self-collision benchmark step must succeed")
+                    .solver
+                    .state_fingerprint
+            }
         };
         black_box(fingerprint);
     }
@@ -231,17 +239,11 @@ fn layered_sheet() -> TriangleMeshCloth {
         .expect("layered performance fixture must be valid")
 }
 
-fn rectangular_grid(
-    columns: usize,
-    rows: usize,
-    origin: Vec3,
-) -> (Vec<Vec3>, Vec<[usize; 3]>) {
+fn rectangular_grid(columns: usize, rows: usize, origin: Vec3) -> (Vec<Vec3>, Vec<[usize; 3]>) {
     let mut positions = Vec::with_capacity(columns * rows);
     for row in 0..rows {
         for column in 0..columns {
-            positions.push(
-                origin + Vec3::new(column as f64 * SPACING, 0.0, row as f64 * SPACING),
-            );
+            positions.push(origin + Vec3::new(column as f64 * SPACING, 0.0, row as f64 * SPACING));
         }
     }
 
