@@ -39,7 +39,7 @@
 - Exclude adjacent mesh features deterministically.
 - Stress folding, inversion, and dense-contact cases.
 
-**Progress:** the first self-collision kernel slice is implemented independently of the main cloth step loop. It uses explicit positive thickness, the pinned `rust-kernels` sweep-and-prune broad phase already exercised by `collision-lab`, conservative f32 AABBs for candidate generation, f64 vertex/triangle narrow phase, inverse-mass-weighted projection, deterministic one-ring mesh exclusions, and degenerate-triangle fallbacks. The next slice wires this proven kernel into every cloth solver iteration and adds folding/inversion stress fixtures before broader self-collision optimization.
+**Status:** complete for the deterministic vertex/triangle reference scope. Self-collision uses explicit positive thickness, the pinned `rust-kernels` sweep-and-prune broad phase already exercised by `collision-lab`, conservative f32 AABBs for candidate generation, f64 vertex/triangle narrow phase, inverse-mass-weighted projection, deterministic one-ring mesh exclusions, and degenerate-triangle fallbacks. `TriangleMeshCloth` caches static exclusion topology and runs the kernel in-place during every solver iteration without cloning particle state. Folded-surface, coplanar/inverted-layer, and dense-contact fixtures cover deterministic replay, finite state, and actual projection. Broader optimization and parallelism belong to the performance stage rather than changing the proven reference semantics here.
 
 ## 5. Garments and asset ingestion
 
@@ -81,7 +81,7 @@ See [docs/garment-formats.md](docs/garment-formats.md) for the format rationale 
 - Add camera and inspection controls without coupling them to the solver.
 - Add debug views for constraints, collisions, normals, self-collision contacts, and solver error.
 
-**Progress:** the Pages viewer now runs the generated falling-sheet fixture and normalized OBJ/self-contained GLB assets through a live Rust/WASM session. It supports mesh-density changes for the generated sheet, explicit textile presets, gravity/solver-iteration/velocity-damping controls, pause/play/single-step/reset, ordinary vertex dragging, and persistent movable pin editing with deterministic replay coverage. The next inspection slice exposes normalized upload fingerprints, stretch/bending constraint topology, current solver error, and last-step contact/friction counts from Rust; the canvas adds surface, wireframe, constraint, and sampled-normal views while normals remain a renderer-derived view of authoritative positions and topology. Generated reference snapshots remain a fail-closed fallback/evidence path. Remaining interactive work is primarily camera inspection, collision/self-collision visualization once self-collision is integrated into the main step loop, richer attachment editing, and eventually the planned wgpu viewer when it provides concrete value over the current canvas consumer.
+**Progress:** the Pages viewer runs generated falling sheets and normalized OBJ/self-contained GLB assets through a live Rust/WASM session. It supports mesh-density changes, textile presets, gravity/solver-iteration/velocity-damping controls, pause/play/single-step/reset, ordinary vertex dragging, persistent movable pins, editable none/sphere/capsule collision scenery, renderer-only orbit/pan/zoom camera controls, and deterministic replay coverage. The inspector exposes normalized upload fingerprints, constraint topology/error, rigid-contact/friction counts, and aggregate self-collision candidate/test/projection counts from Rust. Surface, wireframe, constraint, and sampled-normal views remain renderer-derived consumers of authoritative positions/topology. Generated reference snapshots remain a fail-closed fallback/evidence path. Remaining interactive work is primarily opt-in self-collision contact-location visualization, richer attachment editing, and eventually the planned wgpu viewer when it provides concrete value over the current canvas consumer.
 
 **Acceptance:** a user can upload a supported garment, inspect the normalized asset, start/pause/step/reset its simulation, and manipulate supported interactive inputs while replay from the same asset and recorded inputs remains deterministic.
 
@@ -91,6 +91,8 @@ See [docs/garment-formats.md](docs/garment-formats.md) for the format rationale 
 - Introduce deterministic graph coloring/batching before parallel constraint solving.
 - Evaluate SIMD and GPU solving only against exact or explicitly bounded correctness evidence.
 - Add cloth LOD experiments only after a stable high-quality reference solver exists.
+
+**Next:** establish representative deterministic profiling/benchmark fixtures for the now-proven reference solver, keeping integration, stretch/bending projection, rigid collision, and self-collision costs separable so optimization does not force unnecessary work or hide regressions behind aggregate frame time.
 
 ## 8. Advanced textiles
 
