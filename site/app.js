@@ -183,6 +183,10 @@ function drawCapsule(capsule) {
   context.restore();
 }
 
+function pinMarkerRadius() {
+  return Math.max(4, canvas.width / 260);
+}
+
 function drawSurface(positions, triangles, pinned = [], selectedIndex = null) {
   const projected = positions.map(project);
   const orderedTriangles = triangles
@@ -220,7 +224,7 @@ function drawSurface(positions, triangles, pinned = [], selectedIndex = null) {
       continue;
     }
     context.beginPath();
-    context.arc(point.x, point.y, Math.max(4, canvas.width / 260), 0, Math.PI * 2);
+    context.arc(point.x, point.y, pinMarkerRadius(), 0, Math.PI * 2);
     context.fillStyle = "#f0c36d";
     context.fill();
   }
@@ -506,19 +510,36 @@ function canvasPoint(event) {
   };
 }
 
-function nearestLiveParticle(point) {
+function nearestLiveParticle(point, candidateIndices = null, threshold = null) {
   let bestIndex = null;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < livePositions.length; index += 1) {
+  const consider = (index) => {
     const projected = project(livePositions[index]);
+    if (!projected) {
+      return;
+    }
     const distance = Math.hypot(projected.x - point.x, projected.y - point.y);
     if (distance < bestDistance) {
       bestDistance = distance;
       bestIndex = index;
     }
+  };
+
+  if (candidateIndices === null) {
+    for (let index = 0; index < livePositions.length; index += 1) {
+      consider(index);
+    }
+  } else {
+    for (const index of candidateIndices) {
+      if (Number.isInteger(index) && index >= 0 && index < livePositions.length) {
+        consider(index);
+      }
+    }
   }
-  const threshold = Math.max(14 * Math.min(window.devicePixelRatio || 1, 2), canvas.width / 70);
-  return bestDistance <= threshold ? bestIndex : null;
+
+  const hitThreshold =
+    threshold ?? Math.max(14 * Math.min(window.devicePixelRatio || 1, 2), canvas.width / 70);
+  return bestDistance <= hitThreshold ? bestIndex : null;
 }
 
 function startPointerManipulation(event, index, kind) {
@@ -545,17 +566,22 @@ function beginCanvasDrag(event) {
     return;
   }
   const point = canvasPoint(event);
-  const index = nearestLiveParticle(point);
+  const mode = interactionMode.value;
+  const pinnedIndex =
+    mode === "pin" || mode === "unpin"
+      ? nearestLiveParticle(point, livePinned, pinMarkerRadius())
+      : null;
+  const index =
+    mode === "unpin"
+      ? pinnedIndex
+      : mode === "pin"
+        ? pinnedIndex ?? nearestLiveParticle(point)
+        : nearestLiveParticle(point);
   if (index === null) {
     return;
   }
 
-  const mode = interactionMode.value;
   if (mode === "unpin") {
-    if (!livePinned.includes(index)) {
-      status.textContent = "That vertex is not pinned.";
-      return;
-    }
     try {
       liveSession.unpinParticle(index);
       refreshLivePins();
@@ -675,16 +701,38 @@ function updateInteractionCursor() {
   canvas.classList.toggle("unpin-tool", interactionMode.value === "unpin");
 }
 
+function isFiniteVec3(value) {
+  return Array.isArray(value) && value.length === 3 && value.every(Number.isFinite);
+}
+
 function validateSnapshots(data) {
   if (!Array.isArray(data.frames) || data.frames.length === 0) {
     throw new Error("snapshot payload has no frames");
   }
   if (
     !data.capsule ||
-    !Array.isArray(data.capsule.start) ||
-    !Array.isArray(data.capsule.end)
+    !isFiniteVec3(data.capsule.start) ||
+    !isFiniteVec3(data.capsule.end) ||
+    !Number.isFinite(data.capsule.radius) ||
+    !Number.isFinite(data.capsule.thickness)
   ) {
-    throw new Error("snapshot payload has no capsule collider metadata");
+    throw new Error("snapshot payload has invalid capsule collider metadata");
+  }
+  if (!Array.isArray(data.triangles) || data.triangles.length === 0) {
+    throw new Error("snapshot payload has no triangle topology");
+  }
+  if (
+    !data.triangles.every(
+      (triangle) =>
+        Array.isArray(triangle) &&
+        triangle.length === 3 &&
+        triangle.every((index) => Number.isInteger(index) && index >= 0),
+    )
+  ) {
+    throw new Error("snapshot payload has invalid triangle topology");
+  }
+  if (!Array.isArray(data.pinned) || !data.pinned.every(Number.isInteger)) {
+    throw new Error("snapshot payload has invalid pinned-particle metadata");
   }
   if (typeof data.materialPreset !== "string" || data.materialPreset.length === 0) {
     throw new Error("snapshot payload has no material preset evidence");
@@ -697,6 +745,23 @@ function validateSnapshots(data) {
     !Number.isFinite(data.materialParameters.frictionCoefficient)
   ) {
     throw new Error("snapshot payload has no raw material parameter evidence");
+  }
+  if (
+    !data.frames.every(
+      (frame) =>
+        Number.isInteger(frame.step) &&
+        typeof frame.fingerprint === "string" &&
+        frame.fingerprint.length > 0 &&
+        Array.isArray(frame.positions) &&
+        frame.positions.length > 0 &&
+        frame.positions.every(isFiniteVec3) &&
+        Number.isFinite(frame.maxStretchError) &&
+        Number.isFinite(frame.maxShearError) &&
+        Number.isFinite(frame.maxBendingError) &&
+        Number.isInteger(frame.collisionProjections),
+    )
+  ) {
+    throw new Error("snapshot payload has invalid rendered frame evidence");
   }
 }
 
@@ -900,9 +965,8 @@ fetch("frames.json")
     }
   });
 
-activateDemo()
-  .catch((error) => {
-    status.textContent = `Interactive demo unavailable: ${formatError(error)}. Falling back to reference snapshots.`;
-  });
+activateDemo().catch((error) => {
+  status.textContent = `Interactive demo unavailable: ${formatError(error)}. Falling back to reference snapshots.`;
+});
 
 window.requestAnimationFrame(tick);
