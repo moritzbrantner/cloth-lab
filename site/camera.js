@@ -24,8 +24,8 @@ let cameraPanX = 0;
 let cameraPanY = 0;
 let cameraDragState = null;
 
-function degrees(radians) {
-  return (radians * 180) / Math.PI;
+function degrees(radiansValue) {
+  return (radiansValue * 180) / Math.PI;
 }
 
 function radians(degreesValue) {
@@ -34,6 +34,11 @@ function radians(degreesValue) {
 
 function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function normalizeYaw(value) {
+  const fullTurn = Math.PI * 2;
+  return ((((value + Math.PI) % fullTurn) + fullTurn) % fullTurn) - Math.PI;
 }
 
 function cameraBasis() {
@@ -172,7 +177,9 @@ function updateCameraDrag(event) {
     return;
   }
   event.stopImmediatePropagation();
-  cameraYaw = cameraDragState.yaw + (event.clientX - cameraDragState.startX) * 0.008;
+  cameraYaw = normalizeYaw(
+    cameraDragState.yaw + (event.clientX - cameraDragState.startX) * 0.008,
+  );
   cameraPitch = clamp(
     cameraDragState.pitch - (event.clientY - cameraDragState.startY) * 0.008,
     MIN_CAMERA_PITCH,
@@ -197,7 +204,7 @@ function finishCameraDrag(event) {
 }
 
 function applyCameraControls() {
-  cameraYaw = radians(Number(cameraYawControl.value));
+  cameraYaw = normalizeYaw(radians(Number(cameraYawControl.value)));
   cameraPitch = clamp(
     radians(Number(cameraPitchControl.value)),
     MIN_CAMERA_PITCH,
