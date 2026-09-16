@@ -92,7 +92,9 @@ See [docs/garment-formats.md](docs/garment-formats.md) for the format rationale 
 - Evaluate SIMD and GPU solving only against exact or explicitly bounded correctness evidence.
 - Add cloth LOD experiments only after a stable high-quality reference solver exists.
 
-**Next:** establish representative deterministic profiling/benchmark fixtures for the now-proven reference solver, keeping integration, stretch/bending projection, rigid collision, and self-collision costs separable so optimization does not force unnecessary work or hide regressions behind aggregate frame time.
+**Progress:** a deterministic reference performance profile now keeps five stable lanes: one- versus eight-iteration reference stepping, rigid collision against the same reference sheet, and a layered self-collision workload paired with an identical no-self-collision control. Every timing sample starts from the same fixture and must replay to the same state fingerprint. CI runs only a small functional smoke of these workloads; wall-clock measurements remain release-mode evidence rather than pass/fail gates.
+
+**Next:** capture and compare release-mode baseline measurements on a stable environment, identify the strongest measured cost rather than assuming the hotspot, and make the first optimization against that lane while preserving the paired control, replay fingerprint, and existing correctness fixtures.
 
 ## 8. Advanced textiles
 
