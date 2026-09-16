@@ -5,12 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Interactive deterministic cloth simulation sandbox with mesh, textile, solver, pin, obstacle, inspection, and garment controls backed by the Rust cloth-lab solver."
+      content="Interactive deterministic cloth simulation sandbox with mesh, textile, solver, pin, obstacle, camera, inspection, and garment controls backed by the Rust cloth-lab solver."
     />
     <title>cloth-lab demo</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="camera.css" />
     <script src="app.js" defer></script>
     <script src="obstacle.js" defer></script>
+    <script src="camera.js" defer></script>
   </head>
   <body>
     <main>
@@ -20,7 +22,8 @@
           <h1>Deterministic cloth simulation</h1>
           <p>
             Experiment with a live cloth sheet, change its mesh and material, place movable pins,
-            edit collision scenery, inspect solver behavior, or upload an OBJ/GLB garment mesh.
+            edit collision scenery, inspect the scene from different views, or upload an OBJ/GLB
+            garment mesh.
           </p>
         </div>
         <a href="https://github.com/moritzbrantner/cloth-lab">Source on GitHub</a>
@@ -86,6 +89,7 @@
               <option value="pin">Add / move pins</option>
               <option value="unpin">Remove pins</option>
               <option value="obstacle">Move obstacle</option>
+              <option value="camera">Orbit camera</option>
             </select>
           </label>
 
@@ -155,12 +159,52 @@
           </div>
         </section>
 
+        <section class="camera-panel" aria-labelledby="camera-title">
+          <div class="camera-heading">
+            <h3 id="camera-title">Camera</h3>
+            <p>Orbit directly with the camera pointer tool, or use these controls for exact inspection.</p>
+          </div>
+          <div class="camera-grid">
+            <label class="control range-control" for="camera-yaw">
+              <span>Yaw</span>
+              <input id="camera-yaw" type="range" min="-180" max="180" step="1" value="-36" />
+              <output id="camera-yaw-value" for="camera-yaw">-36°</output>
+            </label>
+
+            <label class="control range-control" for="camera-pitch">
+              <span>Pitch</span>
+              <input id="camera-pitch" type="range" min="-80" max="80" step="1" value="33" />
+              <output id="camera-pitch-value" for="camera-pitch">33°</output>
+            </label>
+
+            <label class="control range-control" for="camera-zoom">
+              <span>Zoom</span>
+              <input id="camera-zoom" type="range" min="0.5" max="3" step="0.05" value="1" />
+              <output id="camera-zoom-value" for="camera-zoom">1.00×</output>
+            </label>
+
+            <label class="control range-control" for="camera-pan-x">
+              <span>Pan X</span>
+              <input id="camera-pan-x" type="range" min="-0.5" max="0.5" step="0.01" value="0" />
+              <output id="camera-pan-x-value" for="camera-pan-x">0.00</output>
+            </label>
+
+            <label class="control range-control" for="camera-pan-y">
+              <span>Pan Y</span>
+              <input id="camera-pan-y" type="range" min="-0.5" max="0.5" step="0.01" value="0" />
+              <output id="camera-pan-y-value" for="camera-pan-y">0.00</output>
+            </label>
+
+            <button id="reset-camera" class="control-action" type="button">Reset camera</button>
+          </div>
+        </section>
+
         <canvas
           id="cloth-canvas"
           width="1200"
           height="760"
           role="img"
-          aria-label="Three-dimensional rendering of a simulated cloth surface. Use the pointer tool control to drag cloth, edit pins, or move the collision obstacle."
+          aria-label="Three-dimensional rendering of a simulated cloth surface. Use the pointer tool control to drag cloth, edit pins, move the collision obstacle, or orbit the camera."
         ></canvas>
 
         <section class="inspector" aria-labelledby="inspector-title">
@@ -210,11 +254,13 @@
         change the explicit fixed-step configuration. Pins are persistent kinematic constraints whose
         targets can be moved. Collision scenery is an explicit validated Rust input: it can be disabled
         or configured as a sphere or x-axis capsule, with accessible position/size controls and direct
-        pointer dragging. The inspector reads authoritative topology, constraint, error, contact,
-        obstacle, and normalized-asset evidence from Rust; wireframe and normal overlays are
-        rendering-only views of authoritative positions and triangles. Uploaded mesh formats still
-        provide geometry only: seams, patterns, measured fabric properties, skins, and animation are
-        not inferred when unsupported by the source.
+        pointer dragging. Camera orbit, zoom, and pan remain renderer-only inspection state; cloth, pin,
+        and obstacle dragging use the same current camera basis so view changes do not alter interaction
+        meaning. The inspector reads authoritative topology, constraint, error, contact, obstacle, and
+        normalized-asset evidence from Rust; wireframe and normal overlays are rendering-only views of
+        authoritative positions and triangles. Uploaded mesh formats still provide geometry only: seams,
+        patterns, measured fabric properties, skins, and animation are not inferred when unsupported by
+        the source.
       </p>
     </main>
   </body>
