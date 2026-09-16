@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Interactive deterministic cloth simulation sandbox with mesh, textile, solver, pin, inspection, and garment controls backed by the Rust cloth-lab solver."
+      content="Interactive deterministic cloth simulation sandbox with mesh, textile, solver, pin, obstacle, inspection, and garment controls backed by the Rust cloth-lab solver."
     />
     <title>cloth-lab demo</title>
     <link rel="stylesheet" href="styles.css" />
     <script src="app.js" defer></script>
+    <script src="obstacle.js" defer></script>
   </head>
   <body>
     <main>
@@ -19,7 +20,7 @@
           <h1>Deterministic cloth simulation</h1>
           <p>
             Experiment with a live cloth sheet, change its mesh and material, place movable pins,
-            inspect solver behavior, or upload an OBJ/GLB garment mesh.
+            edit collision scenery, inspect solver behavior, or upload an OBJ/GLB garment mesh.
           </p>
         </div>
         <a href="https://github.com/moritzbrantner/cloth-lab">Source on GitHub</a>
@@ -84,6 +85,7 @@
               <option value="drag">Drag cloth</option>
               <option value="pin">Add / move pins</option>
               <option value="unpin">Remove pins</option>
+              <option value="obstacle">Move obstacle</option>
             </select>
           </label>
 
@@ -100,12 +102,65 @@
           <button id="clear-pins" class="control-action" type="button" disabled>Clear pins</button>
         </div>
 
+        <section class="obstacle-panel" aria-labelledby="obstacle-title">
+          <div class="obstacle-heading">
+            <h3 id="obstacle-title">Collision obstacle</h3>
+            <p>Use the sliders for exact placement or choose “Move obstacle” and drag it directly.</p>
+          </div>
+          <div class="obstacle-grid">
+            <label class="control" for="obstacle-kind">
+              <span>Shape</span>
+              <select id="obstacle-kind">
+                <option value="none">None</option>
+                <option value="sphere">Sphere</option>
+                <option value="capsule" selected>Capsule</option>
+              </select>
+            </label>
+
+            <label class="control range-control" for="obstacle-x">
+              <span>X</span>
+              <input id="obstacle-x" type="range" min="-1" max="3" step="0.01" value="1.04" />
+              <output id="obstacle-x-value" for="obstacle-x">1.04</output>
+            </label>
+
+            <label class="control range-control" for="obstacle-y">
+              <span>Y</span>
+              <input id="obstacle-y" type="range" min="-2" max="1" step="0.01" value="-0.58" />
+              <output id="obstacle-y-value" for="obstacle-y">-0.58</output>
+            </label>
+
+            <label class="control range-control" for="obstacle-z">
+              <span>Z</span>
+              <input id="obstacle-z" type="range" min="-1" max="3" step="0.01" value="0.88" />
+              <output id="obstacle-z-value" for="obstacle-z">0.88</output>
+            </label>
+
+            <label class="control range-control" for="obstacle-radius">
+              <span>Radius</span>
+              <input id="obstacle-radius" type="range" min="0.05" max="0.8" step="0.01" value="0.28" />
+              <output id="obstacle-radius-value" for="obstacle-radius">0.28</output>
+            </label>
+
+            <label class="control range-control" for="obstacle-thickness">
+              <span>Collision thickness</span>
+              <input id="obstacle-thickness" type="range" min="0" max="0.15" step="0.005" value="0.025" />
+              <output id="obstacle-thickness-value" for="obstacle-thickness">0.025</output>
+            </label>
+
+            <label class="control range-control" for="obstacle-length">
+              <span>Capsule length</span>
+              <input id="obstacle-length" type="range" min="0.1" max="2" step="0.02" value="1.04" />
+              <output id="obstacle-length-value" for="obstacle-length">1.04</output>
+            </label>
+          </div>
+        </section>
+
         <canvas
           id="cloth-canvas"
           width="1200"
           height="760"
           role="img"
-          aria-label="Three-dimensional rendering of a simulated cloth surface. Use the pointer tool control to drag cloth or edit pins."
+          aria-label="Three-dimensional rendering of a simulated cloth surface. Use the pointer tool control to drag cloth, edit pins, or move the collision obstacle."
         ></canvas>
 
         <section class="inspector" aria-labelledby="inspector-title">
@@ -135,6 +190,10 @@
               <dt>Last step contacts</dt>
               <dd id="inspect-contacts">—</dd>
             </div>
+            <div>
+              <dt>Obstacle</dt>
+              <dd id="inspect-obstacle">—</dd>
+            </div>
           </dl>
         </section>
 
@@ -149,11 +208,13 @@
         Rust core compiled to WebAssembly. Mesh density changes the sheet topology while preserving its
         physical size. Textile presets map to solver compliance and contact parameters; solver controls
         change the explicit fixed-step configuration. Pins are persistent kinematic constraints whose
-        targets can be moved. The inspector reads authoritative topology, constraint, error, contact,
-        and normalized-asset evidence from Rust; wireframe and normal overlays are rendering-only views
-        of those authoritative positions and triangles. Uploaded mesh formats still provide geometry
-        only: seams, patterns, measured fabric properties, skins, and animation are not inferred when
-        unsupported by the source.
+        targets can be moved. Collision scenery is an explicit validated Rust input: it can be disabled
+        or configured as a sphere or x-axis capsule, with accessible position/size controls and direct
+        pointer dragging. The inspector reads authoritative topology, constraint, error, contact,
+        obstacle, and normalized-asset evidence from Rust; wireframe and normal overlays are
+        rendering-only views of authoritative positions and triangles. Uploaded mesh formats still
+        provide geometry only: seams, patterns, measured fabric properties, skins, and animation are
+        not inferred when unsupported by the source.
       </p>
     </main>
   </body>

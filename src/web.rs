@@ -8,6 +8,8 @@ use crate::{
     TextilePreset, TriangleMeshCloth, Vec3,
 };
 
+mod obstacle;
+
 const DEMO_MIN_RESOLUTION: u32 = 6;
 const DEMO_MAX_RESOLUTION: u32 = 40;
 const DEMO_WIDTH: f64 = 2.08;

@@ -9,6 +9,7 @@ mod cloth;
 mod garment;
 mod material;
 mod math;
+mod obstacle;
 mod self_collision;
 #[cfg(target_arch = "wasm32")]
 mod web;
@@ -25,6 +26,7 @@ pub use garment::{
 };
 pub use material::{TextileParameters, TextilePreset};
 pub use math::Vec3;
+pub use obstacle::{ClothObstacleConfig, ClothObstacleError, ClothObstacleKind};
 pub use self_collision::{
     SelfCollisionConfig, SelfCollisionError, SelfCollisionParticle, SelfCollisionReport,
     solve_vertex_triangle_self_collision,
