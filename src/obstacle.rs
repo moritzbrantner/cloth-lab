@@ -59,9 +59,17 @@ impl ClothObstacleConfig {
                     return Err(ClothObstacleError::InvalidCapsuleHalfLength);
                 }
                 let offset = Vec3::new(self.capsule_half_length, 0.0, 0.0);
+                let start = self.center - offset;
+                let end = self.center + offset;
+                if !start.is_finite()
+                    || !end.is_finite()
+                    || (end - start).length_squared() <= f64::EPSILON
+                {
+                    return Err(ClothObstacleError::InvalidCapsuleAxis);
+                }
                 Ok(vec![ClothCollider::Capsule(CapsuleCollider {
-                    start: self.center - offset,
-                    end: self.center + offset,
+                    start,
+                    end,
                     radius: self.radius,
                     thickness: self.thickness,
                 })])
@@ -76,6 +84,7 @@ pub enum ClothObstacleError {
     InvalidRadius,
     InvalidThickness,
     InvalidCapsuleHalfLength,
+    InvalidCapsuleAxis,
 }
 
 impl fmt::Display for ClothObstacleError {
@@ -88,6 +97,9 @@ impl fmt::Display for ClothObstacleError {
             }
             Self::InvalidCapsuleHalfLength => {
                 "cloth capsule half-length must be finite and positive"
+            }
+            Self::InvalidCapsuleAxis => {
+                "cloth capsule inputs must produce a finite non-degenerate axis"
             }
         };
         formatter.write_str(message)
@@ -191,6 +203,26 @@ mod tests {
             .colliders()
             .unwrap_err(),
             ClothObstacleError::InvalidCapsuleHalfLength
+        );
+        assert_eq!(
+            ClothObstacleConfig {
+                center: Vec3::new(f64::MAX, 0.0, 0.0),
+                capsule_half_length: f64::MAX,
+                ..base
+            }
+            .colliders()
+            .unwrap_err(),
+            ClothObstacleError::InvalidCapsuleAxis
+        );
+        assert_eq!(
+            ClothObstacleConfig {
+                center: Vec3::new(1.0e300, 0.0, 0.0),
+                capsule_half_length: 1.0,
+                ..base
+            }
+            .colliders()
+            .unwrap_err(),
+            ClothObstacleError::InvalidCapsuleAxis
         );
     }
 
