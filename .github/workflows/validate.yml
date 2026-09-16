@@ -33,5 +33,6 @@ jobs:
       - name: Check Pages JavaScript
         run: |
           node --check site/app.js
+          node --check site/self_collision.js
           node --check site/obstacle.js
           node --check site/camera.js
