@@ -65,6 +65,13 @@ pub struct SelfCollisionParticle {
     pub inverse_mass: f64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SelfCollisionContact {
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub penetration: f64,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SelfCollisionReport {
     pub broad_phase_pairs: usize,
@@ -93,6 +100,19 @@ impl SelfCollisionTopology {
     pub(crate) fn new(triangles: &[[usize; 3]]) -> Self {
         Self {
             mesh_edges: mesh_edges(triangles),
+        }
+    }
+}
+
+struct SelfCollisionTrace<'a> {
+    contacts: &'a mut Vec<SelfCollisionContact>,
+    limit: usize,
+}
+
+impl SelfCollisionTrace<'_> {
+    fn record(&mut self, contact: SelfCollisionContact) {
+        if self.contacts.len() < self.limit {
+            self.contacts.push(contact);
         }
     }
 }
@@ -146,7 +166,7 @@ pub fn solve_vertex_triangle_self_collision(
     let topology = SelfCollisionTopology::new(triangles);
     validate_inputs(particles, triangles, config)?;
     Ok(solve_vertex_triangle_self_collision_prevalidated(
-        particles, triangles, &topology, config,
+        particles, triangles, &topology, config, None,
     ))
 }
 
@@ -156,7 +176,28 @@ pub(crate) fn solve_cloth_vertex_triangle_self_collision(
     topology: &SelfCollisionTopology,
     config: SelfCollisionConfig,
 ) -> SelfCollisionReport {
-    solve_vertex_triangle_self_collision_prevalidated(particles, triangles, topology, config)
+    solve_vertex_triangle_self_collision_prevalidated(particles, triangles, topology, config, None)
+}
+
+pub(crate) fn solve_cloth_vertex_triangle_self_collision_traced(
+    particles: &mut [Particle],
+    triangles: &[[usize; 3]],
+    topology: &SelfCollisionTopology,
+    config: SelfCollisionConfig,
+    contacts: &mut Vec<SelfCollisionContact>,
+    contact_limit: usize,
+) -> SelfCollisionReport {
+    let mut trace = SelfCollisionTrace {
+        contacts,
+        limit: contact_limit,
+    };
+    solve_vertex_triangle_self_collision_prevalidated(
+        particles,
+        triangles,
+        topology,
+        config,
+        Some(&mut trace),
+    )
 }
 
 pub(crate) fn validate_cloth_self_collision_inputs(
@@ -203,6 +244,7 @@ fn solve_vertex_triangle_self_collision_prevalidated<P: SelfCollisionPoint>(
     triangles: &[[usize; 3]],
     topology: &SelfCollisionTopology,
     config: SelfCollisionConfig,
+    mut trace: Option<&mut SelfCollisionTrace<'_>>,
 ) -> SelfCollisionReport {
     let bodies = broad_phase_bodies(particles, triangles, config.thickness);
     let broad_phase = SweepAndPruneBroadPhase::new(Axis3::X);
@@ -229,13 +271,18 @@ fn solve_vertex_triangle_self_collision_prevalidated<P: SelfCollisionPoint>(
             continue;
         }
         report.narrow_phase_tests += 1;
-        report.projections += usize::from(project_vertex_triangle(
+        if let Some(contact) = project_vertex_triangle(
             particles,
             particle_index,
             triangle,
             config.thickness,
             triangle_index,
-        ));
+        ) {
+            report.projections += 1;
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.record(contact);
+            }
+        }
     }
 
     report
@@ -422,7 +469,7 @@ fn project_vertex_triangle<P: SelfCollisionPoint>(
     triangle: [usize; 3],
     thickness: f64,
     triangle_index: usize,
-) -> bool {
+) -> Option<SelfCollisionContact> {
     let [a, b, c] = triangle;
     let point = particles[particle_index].self_collision_position();
     let pa = particles[a].self_collision_position();
@@ -430,7 +477,7 @@ fn project_vertex_triangle<P: SelfCollisionPoint>(
     let pc = particles[c].self_collision_position();
     let closest = closest_point_on_triangle(point, pa, pb, pc);
     if closest.distance_squared >= thickness * thickness {
-        return false;
+        return None;
     }
 
     let distance = closest.distance_squared.sqrt();
@@ -446,15 +493,20 @@ fn project_vertex_triangle<P: SelfCollisionPoint>(
     let mass_c = particles[c].self_collision_inverse_mass();
     let denominator = point_mass + mass_a * wa * wa + mass_b * wb * wb + mass_c * wc * wc;
     if denominator <= f64::EPSILON {
-        return false;
+        return None;
     }
 
-    let lambda = (thickness - distance) / denominator;
+    let penetration = thickness - distance;
+    let lambda = penetration / denominator;
     particles[particle_index].self_collision_translate(normal * (point_mass * lambda));
     particles[a].self_collision_translate(normal * (-mass_a * wa * lambda));
     particles[b].self_collision_translate(normal * (-mass_b * wb * lambda));
     particles[c].self_collision_translate(normal * (-mass_c * wc * lambda));
-    true
+    Some(SelfCollisionContact {
+        point: closest.point,
+        normal,
+        penetration,
+    })
 }
 
 fn closest_point_on_triangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3) -> ClosestTrianglePoint {
@@ -697,6 +749,41 @@ mod tests {
         .unwrap_err();
         assert_eq!(error, SelfCollisionError::InvalidThickness);
         assert_eq!(particles, before);
+    }
+
+    #[test]
+    fn exact_overlap_uses_deterministic_finite_contact_normal() {
+        let mut first = vec![
+            SelfCollisionParticle {
+                position: Vec3::new(-0.3, 0.0, 0.0),
+                inverse_mass: 0.0,
+            },
+            SelfCollisionParticle {
+                position: Vec3::new(0.3, 0.0, 0.0),
+                inverse_mass: 0.0,
+            },
+            SelfCollisionParticle {
+                position: Vec3::new(0.0, 0.0, 0.3),
+                inverse_mass: 0.0,
+            },
+            SelfCollisionParticle {
+                position: Vec3::new(0.0, 0.0, 0.1),
+                inverse_mass: 1.0,
+            },
+        ];
+        let mut second = first.clone();
+        let triangles = [[0, 1, 2]];
+        let config = SelfCollisionConfig { thickness: 0.08 };
+
+        let first_report =
+            solve_vertex_triangle_self_collision(&mut first, &triangles, config).unwrap();
+        let second_report =
+            solve_vertex_triangle_self_collision(&mut second, &triangles, config).unwrap();
+
+        assert_eq!(first_report, second_report);
+        assert_eq!(first_report.projections, 1);
+        assert_eq!(first, second);
+        assert!(first.iter().all(|particle| particle.position.is_finite()));
     }
 
     #[test]
