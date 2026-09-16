@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use crate::self_collision::{
     SelfCollisionConfig, SelfCollisionError, SelfCollisionReport, SelfCollisionTopology,
     solve_cloth_vertex_triangle_self_collision, validate_cloth_self_collision_inputs,
+    validate_cloth_self_collision_step_preflight,
 };
 
 const TRIANGLE_MESH_FINGERPRINT_MARKER: u64 = u64::MAX;
@@ -239,6 +240,11 @@ impl TriangleMeshCloth {
                 &self.triangles,
                 self_collision,
             )?;
+            validate_cloth_self_collision_step_preflight(
+                &self.particles,
+                config,
+                self_collision,
+            )?;
         }
 
         let delta_squared = config.delta_seconds * config.delta_seconds;
@@ -282,7 +288,7 @@ impl TriangleMeshCloth {
                     &self.triangles,
                     &self.self_collision_topology,
                     self_collision,
-                )?);
+                ));
             }
         }
 
@@ -593,6 +599,31 @@ mod triangle_mesh_tests {
         assert_eq!(
             error,
             TriangleMeshStepError::SelfCollision(SelfCollisionError::InvalidThickness)
+        );
+        assert_eq!(cloth, before);
+    }
+
+    #[test]
+    fn integration_overflow_fails_before_mutation() {
+        let mut cloth = folded_self_collision_fixture();
+        let before = cloth.clone();
+        let error = cloth
+            .step_with_contacts_and_self_collision(
+                FixedStepConfig {
+                    delta_seconds: 2.0,
+                    gravity: Vec3::new(f64::MAX, 0.0, 0.0),
+                    solver_iterations: 1,
+                    velocity_damping: 1.0,
+                },
+                &[],
+                ContactConfig::default(),
+                SelfCollisionConfig { thickness: 0.08 },
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            TriangleMeshStepError::SelfCollision(SelfCollisionError::InvalidParticlePosition)
         );
         assert_eq!(cloth, before);
     }
