@@ -4,7 +4,8 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     CapsuleCollider, ClothCollider, ContactConfig, FixedStepConfig, GarmentAsset, GarmentImporter,
-    GlbGarmentImporter, ObjGarmentImporter, ParticleDrag, TextilePreset, TriangleMeshCloth, Vec3,
+    GarmentSourceFormat, GlbGarmentImporter, ObjGarmentImporter, ParticleDrag, StepReport,
+    TextilePreset, TriangleMeshCloth, Vec3,
 };
 
 const DEMO_MIN_RESOLUTION: u32 = 6;
@@ -36,6 +37,9 @@ pub struct BrowserClothSession {
     colliders: Vec<ClothCollider>,
     contact_config: ContactConfig,
     capsule: Option<CapsuleCollider>,
+    source_kind: &'static str,
+    normalized_asset_fingerprint: Option<u64>,
+    last_report: Option<StepReport>,
 }
 
 #[wasm_bindgen]
@@ -101,6 +105,9 @@ impl BrowserClothSession {
             colliders: vec![ClothCollider::Capsule(DEMO_CAPSULE)],
             contact_config: parameters.contact_config(),
             capsule: Some(DEMO_CAPSULE),
+            source_kind: "generated-sheet",
+            normalized_asset_fingerprint: None,
+            last_report: None,
         };
         session.pin_particle_at(0, positions[0])?;
         session.pin_particle_at(columns - 1, positions[columns - 1])?;
@@ -117,6 +124,18 @@ impl BrowserClothSession {
     #[must_use]
     pub fn triangle_count(&self) -> usize {
         self.cloth.triangles().len()
+    }
+
+    #[wasm_bindgen(js_name = stretchConstraintCount)]
+    #[must_use]
+    pub fn stretch_constraint_count(&self) -> usize {
+        self.cloth.stretch_constraints().len()
+    }
+
+    #[wasm_bindgen(js_name = bendingConstraintCount)]
+    #[must_use]
+    pub fn bending_constraint_count(&self) -> usize {
+        self.cloth.bending_constraints().len()
     }
 
     #[must_use]
@@ -141,6 +160,38 @@ impl BrowserClothSession {
                 u32::try_from(index).map_err(|_| JsValue::from_str("triangle index exceeds u32"))
             })
             .collect()
+    }
+
+    #[wasm_bindgen(js_name = stretchConstraintEdges)]
+    pub fn stretch_constraint_edges(&self) -> Result<Vec<u32>, JsValue> {
+        let mut edges = Vec::with_capacity(self.cloth.stretch_constraints().len() * 2);
+        for constraint in self.cloth.stretch_constraints() {
+            edges.push(
+                u32::try_from(constraint.particle_a)
+                    .map_err(|_| JsValue::from_str("stretch constraint index exceeds u32"))?,
+            );
+            edges.push(
+                u32::try_from(constraint.particle_b)
+                    .map_err(|_| JsValue::from_str("stretch constraint index exceeds u32"))?,
+            );
+        }
+        Ok(edges)
+    }
+
+    #[wasm_bindgen(js_name = bendingConstraintEdges)]
+    pub fn bending_constraint_edges(&self) -> Result<Vec<u32>, JsValue> {
+        let mut edges = Vec::with_capacity(self.cloth.bending_constraints().len() * 2);
+        for constraint in self.cloth.bending_constraints() {
+            edges.push(
+                u32::try_from(constraint.edge_a)
+                    .map_err(|_| JsValue::from_str("bending constraint index exceeds u32"))?,
+            );
+            edges.push(
+                u32::try_from(constraint.edge_b)
+                    .map_err(|_| JsValue::from_str("bending constraint index exceeds u32"))?,
+            );
+        }
+        Ok(edges)
     }
 
     #[wasm_bindgen(js_name = pinnedIndices)]
@@ -171,11 +222,53 @@ impl BrowserClothSession {
         })
     }
 
+    #[wasm_bindgen(js_name = sourceKind)]
+    #[must_use]
+    pub fn source_kind(&self) -> String {
+        self.source_kind.to_owned()
+    }
+
+    #[wasm_bindgen(js_name = normalizedAssetFingerprint)]
+    #[must_use]
+    pub fn normalized_asset_fingerprint(&self) -> String {
+        self.normalized_asset_fingerprint
+            .map(|fingerprint| format!("{fingerprint:016x}"))
+            .unwrap_or_default()
+    }
+
+    #[wasm_bindgen(js_name = maxStretchError)]
+    #[must_use]
+    pub fn max_stretch_error(&self) -> f64 {
+        self.cloth.max_stretch_error()
+    }
+
+    #[wasm_bindgen(js_name = maxBendingError)]
+    #[must_use]
+    pub fn max_bending_error(&self) -> f64 {
+        self.cloth.max_bending_error()
+    }
+
+    #[wasm_bindgen(js_name = lastCollisionProjections)]
+    #[must_use]
+    pub fn last_collision_projections(&self) -> usize {
+        self.last_report
+            .map_or(0, |report| report.collision_projections)
+    }
+
+    #[wasm_bindgen(js_name = lastFrictionCorrections)]
+    #[must_use]
+    pub fn last_friction_corrections(&self) -> usize {
+        self.last_report
+            .map_or(0, |report| report.friction_corrections)
+    }
+
     pub fn step(&mut self) -> Result<(), JsValue> {
-        self.cloth
+        let report = self
+            .cloth
             .step_with_contacts(self.step_config, &self.colliders, self.contact_config)
-            .map(|_| ())
-            .map_err(js_error)
+            .map_err(js_error)?;
+        self.last_report = Some(report);
+        Ok(())
     }
 
     pub fn reset(&mut self) -> Result<(), JsValue> {
@@ -187,6 +280,7 @@ impl BrowserClothSession {
         self.cloth = self.initial.clone();
         self.drag = None;
         self.pins.clear();
+        self.last_report = None;
         for (index, target) in targets {
             self.pin_particle_at(index, target)?;
         }
@@ -339,6 +433,11 @@ impl BrowserClothSession {
 fn build_session(asset: GarmentAsset, preset: &str) -> Result<BrowserClothSession, JsValue> {
     let preset = parse_preset(preset)?;
     let parameters = preset.parameters();
+    let source_kind = match asset.source_format() {
+        GarmentSourceFormat::Obj => "obj",
+        GarmentSourceFormat::Glb => "glb",
+    };
+    let normalized_asset_fingerprint = asset.simulation_fingerprint();
     let cloth = TriangleMeshCloth::new(
         asset.positions(),
         asset.triangles(),
@@ -354,6 +453,9 @@ fn build_session(asset: GarmentAsset, preset: &str) -> Result<BrowserClothSessio
         colliders: Vec::new(),
         contact_config: parameters.contact_config(),
         capsule: None,
+        source_kind,
+        normalized_asset_fingerprint: Some(normalized_asset_fingerprint),
+        last_report: None,
     })
 }
 
