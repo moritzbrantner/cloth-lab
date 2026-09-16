@@ -3,11 +3,20 @@ use std::collections::BTreeSet;
 
 use spatial_kernels::{Aabb, Axis3, Body, BroadPhase, SweepAndPruneBroadPhase};
 
-use crate::Vec3;
+use crate::{FixedStepConfig, Particle, Vec3};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SelfCollisionConfig {
     pub thickness: f64,
+}
+
+impl SelfCollisionConfig {
+    pub fn validate(self) -> Result<(), SelfCollisionError> {
+        if !self.thickness.is_finite() || self.thickness <= 0.0 {
+            return Err(SelfCollisionError::InvalidThickness);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,6 +74,63 @@ pub struct SelfCollisionReport {
     pub projections: usize,
 }
 
+impl SelfCollisionReport {
+    pub(crate) fn accumulate(&mut self, other: Self) {
+        self.broad_phase_pairs += other.broad_phase_pairs;
+        self.vertex_triangle_candidates += other.vertex_triangle_candidates;
+        self.adjacency_exclusions += other.adjacency_exclusions;
+        self.narrow_phase_tests += other.narrow_phase_tests;
+        self.projections += other.projections;
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SelfCollisionTopology {
+    mesh_edges: BTreeSet<(usize, usize)>,
+}
+
+impl SelfCollisionTopology {
+    pub(crate) fn new(triangles: &[[usize; 3]]) -> Self {
+        Self {
+            mesh_edges: mesh_edges(triangles),
+        }
+    }
+}
+
+trait SelfCollisionPoint {
+    fn self_collision_position(&self) -> Vec3;
+    fn self_collision_inverse_mass(&self) -> f64;
+    fn self_collision_translate(&mut self, delta: Vec3);
+}
+
+impl SelfCollisionPoint for SelfCollisionParticle {
+    fn self_collision_position(&self) -> Vec3 {
+        self.position
+    }
+
+    fn self_collision_inverse_mass(&self) -> f64 {
+        self.inverse_mass
+    }
+
+    fn self_collision_translate(&mut self, delta: Vec3) {
+        self.position += delta;
+    }
+}
+
+impl SelfCollisionPoint for Particle {
+    fn self_collision_position(&self) -> Vec3 {
+        self.position()
+    }
+
+    fn self_collision_inverse_mass(&self) -> f64 {
+        self.inverse_mass()
+    }
+
+    fn self_collision_translate(&mut self, delta: Vec3) {
+        self.translate_position(delta);
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct ClosestTrianglePoint {
     point: Vec3,
@@ -77,12 +143,70 @@ pub fn solve_vertex_triangle_self_collision(
     triangles: &[[usize; 3]],
     config: SelfCollisionConfig,
 ) -> Result<SelfCollisionReport, SelfCollisionError> {
+    let topology = SelfCollisionTopology::new(triangles);
     validate_inputs(particles, triangles, config)?;
+    Ok(solve_vertex_triangle_self_collision_prevalidated(
+        particles, triangles, &topology, config,
+    ))
+}
 
+pub(crate) fn solve_cloth_vertex_triangle_self_collision(
+    particles: &mut [Particle],
+    triangles: &[[usize; 3]],
+    topology: &SelfCollisionTopology,
+    config: SelfCollisionConfig,
+) -> SelfCollisionReport {
+    solve_vertex_triangle_self_collision_prevalidated(particles, triangles, topology, config)
+}
+
+pub(crate) fn validate_cloth_self_collision_inputs(
+    particles: &[Particle],
+    triangles: &[[usize; 3]],
+    config: SelfCollisionConfig,
+) -> Result<(), SelfCollisionError> {
+    validate_inputs(particles, triangles, config)
+}
+
+pub(crate) fn validate_cloth_self_collision_step_preflight(
+    particles: &[Particle],
+    step: FixedStepConfig,
+    config: SelfCollisionConfig,
+) -> Result<(), SelfCollisionError> {
+    config.validate()?;
+    let delta_squared = step.delta_seconds * step.delta_seconds;
+    if !delta_squared.is_finite() {
+        return Err(SelfCollisionError::InvalidParticlePosition);
+    }
+    let gravity_displacement = step.gravity * delta_squared;
+    if !gravity_displacement.is_finite() {
+        return Err(SelfCollisionError::InvalidParticlePosition);
+    }
+
+    for particle in particles {
+        if particle.is_pinned() {
+            validate_broad_phase_position(particle.position(), config.thickness)?;
+            continue;
+        }
+        let velocity = particle.position() - particle.previous_position();
+        let inertial_displacement = velocity * step.velocity_damping;
+        let predicted = particle.position() + inertial_displacement + gravity_displacement;
+        if !velocity.is_finite() || !inertial_displacement.is_finite() || !predicted.is_finite() {
+            return Err(SelfCollisionError::InvalidParticlePosition);
+        }
+        validate_broad_phase_position(predicted, config.thickness)?;
+    }
+    Ok(())
+}
+
+fn solve_vertex_triangle_self_collision_prevalidated<P: SelfCollisionPoint>(
+    particles: &mut [P],
+    triangles: &[[usize; 3]],
+    topology: &SelfCollisionTopology,
+    config: SelfCollisionConfig,
+) -> SelfCollisionReport {
     let bodies = broad_phase_bodies(particles, triangles, config.thickness);
     let broad_phase = SweepAndPruneBroadPhase::new(Axis3::X);
     let broad_phase_result = broad_phase.detect(&bodies);
-    let mesh_edges = mesh_edges(triangles);
     let particle_count = particles.len();
     let mut report = SelfCollisionReport {
         broad_phase_pairs: broad_phase_result.pairs.len(),
@@ -100,7 +224,7 @@ pub fn solve_vertex_triangle_self_collision(
         };
         report.vertex_triangle_candidates += 1;
         let triangle = triangles[triangle_index];
-        if is_adjacent_feature(particle_index, triangle, &mesh_edges) {
+        if is_adjacent_feature(particle_index, triangle, &topology.mesh_edges) {
             report.adjacency_exclusions += 1;
             continue;
         }
@@ -114,17 +238,15 @@ pub fn solve_vertex_triangle_self_collision(
         ));
     }
 
-    Ok(report)
+    report
 }
 
-fn validate_inputs(
-    particles: &[SelfCollisionParticle],
+fn validate_inputs<P: SelfCollisionPoint>(
+    particles: &[P],
     triangles: &[[usize; 3]],
     config: SelfCollisionConfig,
 ) -> Result<(), SelfCollisionError> {
-    if !config.thickness.is_finite() || config.thickness <= 0.0 {
-        return Err(SelfCollisionError::InvalidThickness);
-    }
+    config.validate()?;
     let total = particles
         .len()
         .checked_add(triangles.len())
@@ -133,23 +255,16 @@ fn validate_inputs(
         return Err(SelfCollisionError::TopologyTooLarge);
     }
 
-    let broad_phase_limit = f64::from(f32::MAX);
     for particle in particles {
-        if !particle.position.is_finite() {
+        let position = particle.self_collision_position();
+        let inverse_mass = particle.self_collision_inverse_mass();
+        if !position.is_finite() {
             return Err(SelfCollisionError::InvalidParticlePosition);
         }
-        if !particle.inverse_mass.is_finite() || particle.inverse_mass < 0.0 {
+        if !inverse_mass.is_finite() || inverse_mass < 0.0 {
             return Err(SelfCollisionError::InvalidInverseMass);
         }
-        for coordinate in [
-            particle.position.x,
-            particle.position.y,
-            particle.position.z,
-        ] {
-            if coordinate.abs() + config.thickness > broad_phase_limit {
-                return Err(SelfCollisionError::BroadPhaseRangeExceeded);
-            }
-        }
+        validate_broad_phase_position(position, config.thickness)?;
     }
 
     for &[a, b, c] in triangles {
@@ -163,22 +278,36 @@ fn validate_inputs(
     Ok(())
 }
 
-fn broad_phase_bodies(
-    particles: &[SelfCollisionParticle],
+fn validate_broad_phase_position(position: Vec3, thickness: f64) -> Result<(), SelfCollisionError> {
+    if !position.is_finite() {
+        return Err(SelfCollisionError::InvalidParticlePosition);
+    }
+    let broad_phase_limit = f64::from(f32::MAX);
+    for coordinate in [position.x, position.y, position.z] {
+        if coordinate.abs() + thickness > broad_phase_limit {
+            return Err(SelfCollisionError::BroadPhaseRangeExceeded);
+        }
+    }
+    Ok(())
+}
+
+fn broad_phase_bodies<P: SelfCollisionPoint>(
+    particles: &[P],
     triangles: &[[usize; 3]],
     thickness: f64,
 ) -> Vec<Body> {
     let mut bodies = Vec::with_capacity(particles.len() + triangles.len());
     for (index, particle) in particles.iter().enumerate() {
-        let min = particle.position - Vec3::new(thickness, thickness, thickness);
-        let max = particle.position + Vec3::new(thickness, thickness, thickness);
+        let position = particle.self_collision_position();
+        let min = position - Vec3::new(thickness, thickness, thickness);
+        let max = position + Vec3::new(thickness, thickness, thickness);
         bodies.push(Body::new(index as u32, conservative_aabb(min, max)));
     }
     let triangle_offset = particles.len();
     for (index, &[a, b, c]) in triangles.iter().enumerate() {
-        let pa = particles[a].position;
-        let pb = particles[b].position;
-        let pc = particles[c].position;
+        let pa = particles[a].self_collision_position();
+        let pb = particles[b].self_collision_position();
+        let pc = particles[c].self_collision_position();
         let min = Vec3::new(
             pa.x.min(pb.x).min(pc.x),
             pa.y.min(pb.y).min(pc.y),
@@ -287,18 +416,18 @@ fn is_adjacent_feature(
             .any(|vertex| mesh_edges.contains(&ordered_pair(particle, vertex)))
 }
 
-fn project_vertex_triangle(
-    particles: &mut [SelfCollisionParticle],
+fn project_vertex_triangle<P: SelfCollisionPoint>(
+    particles: &mut [P],
     particle_index: usize,
     triangle: [usize; 3],
     thickness: f64,
     triangle_index: usize,
 ) -> bool {
     let [a, b, c] = triangle;
-    let point = particles[particle_index].position;
-    let pa = particles[a].position;
-    let pb = particles[b].position;
-    let pc = particles[c].position;
+    let point = particles[particle_index].self_collision_position();
+    let pa = particles[a].self_collision_position();
+    let pb = particles[b].self_collision_position();
+    let pc = particles[c].self_collision_position();
     let closest = closest_point_on_triangle(point, pa, pb, pc);
     if closest.distance_squared >= thickness * thickness {
         return false;
@@ -311,20 +440,20 @@ fn project_vertex_triangle(
         deterministic_triangle_normal(pa, pb, pc, particle_index, triangle_index)
     };
     let [wa, wb, wc] = closest.barycentric;
-    let point_mass = particles[particle_index].inverse_mass;
-    let mass_a = particles[a].inverse_mass;
-    let mass_b = particles[b].inverse_mass;
-    let mass_c = particles[c].inverse_mass;
+    let point_mass = particles[particle_index].self_collision_inverse_mass();
+    let mass_a = particles[a].self_collision_inverse_mass();
+    let mass_b = particles[b].self_collision_inverse_mass();
+    let mass_c = particles[c].self_collision_inverse_mass();
     let denominator = point_mass + mass_a * wa * wa + mass_b * wb * wb + mass_c * wc * wc;
     if denominator <= f64::EPSILON {
         return false;
     }
 
     let lambda = (thickness - distance) / denominator;
-    particles[particle_index].position += normal * (point_mass * lambda);
-    particles[a].position -= normal * (mass_a * wa * lambda);
-    particles[b].position -= normal * (mass_b * wb * lambda);
-    particles[c].position -= normal * (mass_c * wc * lambda);
+    particles[particle_index].self_collision_translate(normal * (point_mass * lambda));
+    particles[a].self_collision_translate(normal * (-mass_a * wa * lambda));
+    particles[b].self_collision_translate(normal * (-mass_b * wb * lambda));
+    particles[c].self_collision_translate(normal * (-mass_c * wc * lambda));
     true
 }
 

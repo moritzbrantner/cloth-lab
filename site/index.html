@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Interactive deterministic cloth simulation sandbox with mesh, textile, solver, pin, obstacle, camera, inspection, and garment controls backed by the Rust cloth-lab solver."
+      content="Interactive deterministic cloth simulation sandbox with mesh, textile, solver, self-collision, pin, obstacle, camera, inspection, and garment controls backed by the Rust cloth-lab solver."
     />
     <title>cloth-lab demo</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="camera.css" />
     <script src="app.js" defer></script>
+    <script src="self_collision.js" defer></script>
     <script src="obstacle.js" defer></script>
     <script src="camera.js" defer></script>
   </head>
@@ -21,9 +22,9 @@
           <p class="eyebrow">cloth-lab</p>
           <h1>Deterministic cloth simulation</h1>
           <p>
-            Experiment with a live cloth sheet, change its mesh and material, place movable pins,
-            edit collision scenery, inspect the scene from different views, or upload an OBJ/GLB
-            garment mesh.
+            Experiment with a live cloth sheet, change its mesh and material, enable self-collision,
+            place movable pins, edit collision scenery, inspect the scene from different views, or
+            upload an OBJ/GLB garment mesh.
           </p>
         </div>
         <a href="https://github.com/moritzbrantner/cloth-lab">Source on GitHub</a>
@@ -80,6 +81,28 @@
             <span>Velocity damping</span>
             <input id="velocity-damping" type="range" min="0.9" max="1" step="0.001" value="0.995" />
             <output id="velocity-damping-value" for="velocity-damping">0.995</output>
+          </label>
+
+          <label class="control" for="self-collision-mode">
+            <span>Self collision</span>
+            <select id="self-collision-mode">
+              <option value="off" selected>Off</option>
+              <option value="on">On</option>
+            </select>
+          </label>
+
+          <label class="control range-control" for="self-collision-thickness">
+            <span>Self thickness</span>
+            <input
+              id="self-collision-thickness"
+              type="range"
+              min="0.005"
+              max="0.15"
+              step="0.005"
+              value="0.04"
+              disabled
+            />
+            <output id="self-collision-thickness-value" for="self-collision-thickness">0.040</output>
           </label>
 
           <label class="control" for="interaction-mode">
@@ -235,6 +258,10 @@
               <dd id="inspect-contacts">—</dd>
             </div>
             <div>
+              <dt>Self collision</dt>
+              <dd id="inspect-self-collision">off</dd>
+            </div>
+            <div>
               <dt>Obstacle</dt>
               <dd id="inspect-obstacle">—</dd>
             </div>
@@ -251,16 +278,18 @@
         The sheet demo and uploaded OBJ/self-contained GLB triangle meshes run through the cloth-lab
         Rust core compiled to WebAssembly. Mesh density changes the sheet topology while preserving its
         physical size. Textile presets map to solver compliance and contact parameters; solver controls
-        change the explicit fixed-step configuration. Pins are persistent kinematic constraints whose
-        targets can be moved. Collision scenery is an explicit validated Rust input: it can be disabled
-        or configured as a sphere or x-axis capsule, with accessible position/size controls and direct
-        pointer dragging. Camera orbit, zoom, and pan remain renderer-only inspection state; cloth, pin,
-        and obstacle dragging use the same current camera basis so view changes do not alter interaction
-        meaning. The inspector reads authoritative topology, constraint, error, contact, obstacle, and
-        normalized-asset evidence from Rust; wireframe and normal overlays are rendering-only views of
-        authoritative positions and triangles. Uploaded mesh formats still provide geometry only: seams,
-        patterns, measured fabric properties, skins, and animation are not inferred when unsupported by
-        the source.
+        change the explicit fixed-step configuration. Self-collision is opt-in so historical comparisons
+        remain stable; when enabled, the configured thickness is solved by the same deterministic Rust
+        vertex/triangle kernel inside every triangle-mesh solver iteration. Pins are persistent kinematic
+        constraints whose targets can be moved. Collision scenery is an explicit validated Rust input:
+        it can be disabled or configured as a sphere or x-axis capsule, with accessible position/size
+        controls and direct pointer dragging. Camera orbit, zoom, and pan remain renderer-only inspection
+        state; cloth, pin, and obstacle dragging use the same current camera basis so view changes do not
+        alter interaction meaning. The inspector reads authoritative topology, constraint, error, contact,
+        self-collision, obstacle, and normalized-asset evidence from Rust; wireframe and normal overlays
+        are rendering-only views of authoritative positions and triangles. Uploaded mesh formats still
+        provide geometry only: seams, patterns, measured fabric properties, skins, and animation are not
+        inferred when unsupported by the source.
       </p>
     </main>
   </body>

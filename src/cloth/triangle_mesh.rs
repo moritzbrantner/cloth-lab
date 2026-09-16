@@ -1,5 +1,11 @@
 use std::collections::BTreeSet;
 
+use crate::self_collision::{
+    SelfCollisionConfig, SelfCollisionError, SelfCollisionReport, SelfCollisionTopology,
+    solve_cloth_vertex_triangle_self_collision, validate_cloth_self_collision_inputs,
+    validate_cloth_self_collision_step_preflight,
+};
+
 const TRIANGLE_MESH_FINGERPRINT_MARKER: u64 = u64::MAX;
 
 /// Solver parameters for an arbitrary indexed triangle surface.
@@ -54,12 +60,48 @@ impl fmt::Display for TriangleMeshClothError {
 
 impl std::error::Error for TriangleMeshClothError {}
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TriangleMeshStepError {
+    Solver(ClothError),
+    SelfCollision(SelfCollisionError),
+}
+
+impl fmt::Display for TriangleMeshStepError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Solver(error) => fmt::Display::fmt(error, formatter),
+            Self::SelfCollision(error) => fmt::Display::fmt(error, formatter),
+        }
+    }
+}
+
+impl std::error::Error for TriangleMeshStepError {}
+
+impl From<ClothError> for TriangleMeshStepError {
+    fn from(error: ClothError) -> Self {
+        Self::Solver(error)
+    }
+}
+
+impl From<SelfCollisionError> for TriangleMeshStepError {
+    fn from(error: SelfCollisionError) -> Self {
+        Self::SelfCollision(error)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TriangleMeshStepReport {
+    pub solver: StepReport,
+    pub self_collision: SelfCollisionReport,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct TriangleMeshCloth {
     particles: Vec<Particle>,
     triangles: Vec<[usize; 3]>,
     stretch_constraints: Vec<DistanceConstraint>,
     bending_constraints: Vec<BendingConstraint>,
+    self_collision_topology: SelfCollisionTopology,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -99,12 +141,14 @@ impl TriangleMeshCloth {
             config.bending_compliance,
         )
         .map_err(TriangleMeshClothError::Solver)?;
+        let self_collision_topology = SelfCollisionTopology::new(&triangles);
 
         Ok(Self {
             particles,
             triangles,
             stretch_constraints,
             bending_constraints,
+            self_collision_topology,
         })
     }
 
@@ -161,9 +205,47 @@ impl TriangleMeshCloth {
         colliders: &[ClothCollider],
         contact: ContactConfig,
     ) -> Result<StepReport, ClothError> {
+        match self.step_with_contacts_internal(config, colliders, contact, None) {
+            Ok(report) => Ok(report.solver),
+            Err(TriangleMeshStepError::Solver(error)) => Err(error),
+            Err(TriangleMeshStepError::SelfCollision(_)) => {
+                unreachable!("self-collision is disabled for the legacy step path")
+            }
+        }
+    }
+
+    pub fn step_with_contacts_and_self_collision(
+        &mut self,
+        config: FixedStepConfig,
+        colliders: &[ClothCollider],
+        contact: ContactConfig,
+        self_collision: SelfCollisionConfig,
+    ) -> Result<TriangleMeshStepReport, TriangleMeshStepError> {
+        self.step_with_contacts_internal(config, colliders, contact, Some(self_collision))
+    }
+
+    fn step_with_contacts_internal(
+        &mut self,
+        config: FixedStepConfig,
+        colliders: &[ClothCollider],
+        contact: ContactConfig,
+        self_collision: Option<SelfCollisionConfig>,
+    ) -> Result<TriangleMeshStepReport, TriangleMeshStepError> {
         validate_step_config(config)?;
         validate_contact_config(contact)?;
         validate_colliders(colliders)?;
+        if let Some(self_collision) = self_collision {
+            validate_cloth_self_collision_inputs(
+                &self.particles,
+                &self.triangles,
+                self_collision,
+            )?;
+            validate_cloth_self_collision_step_preflight(
+                &self.particles,
+                config,
+                self_collision,
+            )?;
+        }
 
         let delta_squared = config.delta_seconds * config.delta_seconds;
         for particle in &mut self.particles {
@@ -188,6 +270,7 @@ impl TriangleMeshCloth {
 
         let mut collision_projections = 0;
         let mut friction_corrections = 0;
+        let mut self_collision_report = SelfCollisionReport::default();
         for _ in 0..config.solver_iterations {
             let particles = &mut self.particles;
             for constraint in &mut self.stretch_constraints {
@@ -199,15 +282,26 @@ impl TriangleMeshCloth {
             let collision_report = solve_collisions(particles, colliders, contact);
             collision_projections += collision_report.projections;
             friction_corrections += collision_report.friction_corrections;
+            if let Some(self_collision) = self_collision {
+                self_collision_report.accumulate(solve_cloth_vertex_triangle_self_collision(
+                    particles,
+                    &self.triangles,
+                    &self.self_collision_topology,
+                    self_collision,
+                ));
+            }
         }
 
-        Ok(StepReport {
-            max_stretch_error: self.max_stretch_error(),
-            max_shear_error: 0.0,
-            max_bending_error: self.max_bending_error(),
-            state_fingerprint: self.state_fingerprint(),
-            collision_projections,
-            friction_corrections,
+        Ok(TriangleMeshStepReport {
+            solver: StepReport {
+                max_stretch_error: self.max_stretch_error(),
+                max_shear_error: 0.0,
+                max_bending_error: self.max_bending_error(),
+                state_fingerprint: self.state_fingerprint(),
+                collision_projections,
+                friction_corrections,
+            },
+            self_collision: self_collision_report,
         })
     }
 
@@ -374,6 +468,35 @@ mod triangle_mesh_tests {
         .expect("triangle mesh fixture must be valid")
     }
 
+    fn folded_self_collision_fixture() -> TriangleMeshCloth {
+        TriangleMeshCloth::new(
+            &[
+                Vec3::new(-0.3, 0.0, 0.0),
+                Vec3::new(0.3, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, 0.3),
+                Vec3::new(-0.12, 0.02, 0.06),
+                Vec3::new(0.12, 0.02, 0.06),
+                Vec3::new(0.0, 0.02, 0.24),
+            ],
+            &[[0, 2, 1], [3, 4, 5]],
+            TriangleMeshClothConfig {
+                particle_mass: 1.0,
+                stretch_compliance: 1.0e-7,
+                bending_compliance: 1.0e-3,
+            },
+        )
+        .expect("folded self-collision fixture must be valid")
+    }
+
+    fn self_collision_step() -> FixedStepConfig {
+        FixedStepConfig {
+            delta_seconds: 1.0 / 60.0,
+            gravity: Vec3::ZERO,
+            solver_iterations: 4,
+            velocity_damping: 1.0,
+        }
+    }
+
     #[test]
     fn derives_only_real_mesh_edges() {
         let cloth = triangle_mesh_fixture();
@@ -422,6 +545,103 @@ mod triangle_mesh_tests {
         }
         assert_eq!(first.particles(), second.particles());
         assert_eq!(first.state_fingerprint(), second.state_fingerprint());
+    }
+
+    #[test]
+    fn self_collision_runs_inside_each_solver_iteration_deterministically() {
+        let mut first = folded_self_collision_fixture();
+        let mut second = first.clone();
+        let self_collision = SelfCollisionConfig { thickness: 0.08 };
+        let mut total_narrow_phase_tests = 0;
+        let mut total_projections = 0;
+
+        for _ in 0..12 {
+            let first_report = first
+                .step_with_contacts_and_self_collision(
+                    self_collision_step(),
+                    &[],
+                    ContactConfig::default(),
+                    self_collision,
+                )
+                .unwrap();
+            let second_report = second
+                .step_with_contacts_and_self_collision(
+                    self_collision_step(),
+                    &[],
+                    ContactConfig::default(),
+                    self_collision,
+                )
+                .unwrap();
+            assert_eq!(first_report, second_report);
+            total_narrow_phase_tests += first_report.self_collision.narrow_phase_tests;
+            total_projections += first_report.self_collision.projections;
+        }
+
+        assert!(total_narrow_phase_tests > 0);
+        assert!(total_projections > 0);
+        assert_eq!(first.particles(), second.particles());
+        assert_eq!(first.state_fingerprint(), second.state_fingerprint());
+    }
+
+    #[test]
+    fn invalid_self_collision_config_fails_before_mutation() {
+        let mut cloth = folded_self_collision_fixture();
+        let before = cloth.clone();
+        let error = cloth
+            .step_with_contacts_and_self_collision(
+                self_collision_step(),
+                &[],
+                ContactConfig::default(),
+                SelfCollisionConfig { thickness: -0.01 },
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            TriangleMeshStepError::SelfCollision(SelfCollisionError::InvalidThickness)
+        );
+        assert_eq!(cloth, before);
+    }
+
+    #[test]
+    fn integration_overflow_fails_before_mutation() {
+        let mut cloth = folded_self_collision_fixture();
+        let before = cloth.clone();
+        let error = cloth
+            .step_with_contacts_and_self_collision(
+                FixedStepConfig {
+                    delta_seconds: 2.0,
+                    gravity: Vec3::new(f64::MAX, 0.0, 0.0),
+                    solver_iterations: 1,
+                    velocity_damping: 1.0,
+                },
+                &[],
+                ContactConfig::default(),
+                SelfCollisionConfig { thickness: 0.08 },
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            TriangleMeshStepError::SelfCollision(SelfCollisionError::InvalidParticlePosition)
+        );
+        assert_eq!(cloth, before);
+    }
+
+    #[test]
+    fn self_collision_reports_actual_projections_for_folded_surfaces() {
+        let mut cloth = folded_self_collision_fixture();
+        let report = cloth
+            .step_with_contacts_and_self_collision(
+                self_collision_step(),
+                &[],
+                ContactConfig::default(),
+                SelfCollisionConfig { thickness: 0.08 },
+            )
+            .unwrap();
+
+        assert!(report.self_collision.projections > 0);
+        assert!(report.self_collision.vertex_triangle_candidates > 0);
     }
 
     #[test]

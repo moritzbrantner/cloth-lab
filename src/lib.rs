@@ -18,7 +18,7 @@ pub use cloth::{
     BendingConstraint, CapsuleCollider, Cloth, ClothCollider, ClothError, ClothInteractionError,
     ContactConfig, DistanceConstraint, FixedStepConfig, Particle, ParticleDrag,
     RectangularClothConfig, SphereCollider, StepReport, TriangleMeshCloth, TriangleMeshClothConfig,
-    TriangleMeshClothError,
+    TriangleMeshClothError, TriangleMeshStepError, TriangleMeshStepReport,
 };
 pub use garment::{
     GarmentAsset, GarmentImportError, GarmentImporter, GarmentSourceFormat, GlbGarmentImporter,
