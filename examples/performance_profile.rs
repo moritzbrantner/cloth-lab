@@ -8,6 +8,8 @@ use cloth_lab::{
 
 const SAMPLE_COUNT: usize = 9;
 const STEPS_PER_SAMPLE: usize = 30;
+const SMOKE_SAMPLE_COUNT: usize = 2;
+const SMOKE_STEPS_PER_SAMPLE: usize = 2;
 const REFERENCE_COLUMNS: usize = 28;
 const REFERENCE_ROWS: usize = 20;
 const LAYER_COLUMNS: usize = 18;
@@ -24,37 +26,74 @@ enum BenchmarkMode {
     LayeredWithSelfCollision,
 }
 
+#[derive(Clone, Copy)]
+struct ProfileConfig {
+    sample_count: usize,
+    steps_per_sample: usize,
+}
+
 struct SampleResult {
     elapsed: Duration,
     fingerprint: u64,
 }
 
 fn main() {
+    let config = profile_config();
     println!("cloth-lab deterministic reference performance profile");
-    println!("samples={SAMPLE_COUNT} steps/sample={STEPS_PER_SAMPLE}");
+    println!(
+        "samples={} steps/sample={}",
+        config.sample_count, config.steps_per_sample
+    );
     println!();
-    println!("| lane | vertices | triangles | solver iterations | median ns/step | min ns/step | max ns/step | fingerprint |");
+    println!(
+        "| lane | vertices | triangles | solver iterations | median ns/step | min ns/step | max ns/step | fingerprint |"
+    );
     println!("| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
 
-    profile_lane("reference-1-iteration", BenchmarkMode::ReferenceOneIteration);
-    profile_lane("reference-8-iterations", BenchmarkMode::ReferenceEightIterations);
-    profile_lane("rigid-collision", BenchmarkMode::RigidCollision);
+    profile_lane(
+        "reference-1-iteration",
+        BenchmarkMode::ReferenceOneIteration,
+        config,
+    );
+    profile_lane(
+        "reference-8-iterations",
+        BenchmarkMode::ReferenceEightIterations,
+        config,
+    );
+    profile_lane("rigid-collision", BenchmarkMode::RigidCollision, config);
     profile_lane(
         "layered-no-self-collision",
         BenchmarkMode::LayeredWithoutSelfCollision,
+        config,
     );
     profile_lane(
         "layered-self-collision",
         BenchmarkMode::LayeredWithSelfCollision,
+        config,
     );
 }
 
-fn profile_lane(name: &str, mode: BenchmarkMode) {
-    let warmup = run_sample(mode);
+fn profile_config() -> ProfileConfig {
+    let smoke = std::env::args().skip(1).any(|argument| argument == "--smoke");
+    if smoke {
+        ProfileConfig {
+            sample_count: SMOKE_SAMPLE_COUNT,
+            steps_per_sample: SMOKE_STEPS_PER_SAMPLE,
+        }
+    } else {
+        ProfileConfig {
+            sample_count: SAMPLE_COUNT,
+            steps_per_sample: STEPS_PER_SAMPLE,
+        }
+    }
+}
+
+fn profile_lane(name: &str, mode: BenchmarkMode, config: ProfileConfig) {
+    let warmup = run_sample(mode, config.steps_per_sample);
     black_box(warmup.fingerprint);
 
-    let mut samples = (0..SAMPLE_COUNT)
-        .map(|_| run_sample(mode))
+    let mut samples = (0..config.sample_count)
+        .map(|_| run_sample(mode, config.steps_per_sample))
         .collect::<Vec<_>>();
     let expected_fingerprint = samples[0].fingerprint;
     assert!(
@@ -65,9 +104,9 @@ fn profile_lane(name: &str, mode: BenchmarkMode) {
     );
 
     samples.sort_by_key(|sample| sample.elapsed);
-    let median = samples[SAMPLE_COUNT / 2].elapsed;
+    let median = samples[config.sample_count / 2].elapsed;
     let minimum = samples[0].elapsed;
-    let maximum = samples[SAMPLE_COUNT - 1].elapsed;
+    let maximum = samples[config.sample_count - 1].elapsed;
     let cloth = fixture_for(mode);
     let solver_iterations = step_config_for(mode).solver_iterations;
 
@@ -75,13 +114,13 @@ fn profile_lane(name: &str, mode: BenchmarkMode) {
         "| {name} | {} | {} | {solver_iterations} | {} | {} | {} | {expected_fingerprint:016x} |",
         cloth.particles().len(),
         cloth.triangles().len(),
-        nanoseconds_per_step(median),
-        nanoseconds_per_step(minimum),
-        nanoseconds_per_step(maximum),
+        nanoseconds_per_step(median, config.steps_per_sample),
+        nanoseconds_per_step(minimum, config.steps_per_sample),
+        nanoseconds_per_step(maximum, config.steps_per_sample),
     );
 }
 
-fn run_sample(mode: BenchmarkMode) -> SampleResult {
+fn run_sample(mode: BenchmarkMode, steps_per_sample: usize) -> SampleResult {
     let mut cloth = fixture_for(mode);
     let step = step_config_for(mode);
     let sphere = ClothCollider::Sphere(SphereCollider {
@@ -96,7 +135,7 @@ fn run_sample(mode: BenchmarkMode) -> SampleResult {
 
     let started = Instant::now();
     let mut fingerprint = cloth.state_fingerprint();
-    for _ in 0..STEPS_PER_SAMPLE {
+    for _ in 0..steps_per_sample {
         fingerprint = match mode {
             BenchmarkMode::ReferenceOneIteration
             | BenchmarkMode::ReferenceEightIterations
@@ -228,6 +267,6 @@ fn cloth_config() -> TriangleMeshClothConfig {
     }
 }
 
-fn nanoseconds_per_step(duration: Duration) -> u128 {
-    duration.as_nanos() / STEPS_PER_SAMPLE as u128
+fn nanoseconds_per_step(duration: Duration, steps_per_sample: usize) -> u128 {
+    duration.as_nanos() / steps_per_sample as u128
 }
