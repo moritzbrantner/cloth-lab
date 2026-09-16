@@ -5,16 +5,29 @@ const context = canvas.getContext("2d");
 const playToggle = document.querySelector("#play-toggle");
 const singleStepButton = document.querySelector("#single-step");
 const restartButton = document.querySelector("#restart");
+const useDemoButton = document.querySelector("#use-demo");
+const clearPinsButton = document.querySelector("#clear-pins");
 const slider = document.querySelector("#frame-slider");
 const timeline = document.querySelector(".timeline");
 const status = document.querySelector("#status");
 const garmentUpload = document.querySelector("#garment-upload");
 const materialPreset = document.querySelector("#material-preset");
+const meshResolution = document.querySelector("#mesh-resolution");
+const meshResolutionValue = document.querySelector("#mesh-resolution-value");
+const gravityControl = document.querySelector("#gravity-control");
+const gravityValue = document.querySelector("#gravity-value");
+const solverIterations = document.querySelector("#solver-iterations");
+const solverIterationsValue = document.querySelector("#solver-iterations-value");
+const velocityDamping = document.querySelector("#velocity-damping");
+const velocityDampingValue = document.querySelector("#velocity-damping-value");
+const interactionMode = document.querySelector("#interaction-mode");
 
 const YAW = -0.62;
 const PITCH = 0.58;
 const FIXED_STEP_MS = 1000 / 60;
 const MAX_STEPS_PER_FRAME = 4;
+const DEMO_ROWS_NUMERATOR = 11;
+const DEMO_ROWS_DENOMINATOR = 13;
 
 let snapshots = null;
 let frameIndex = 0;
@@ -26,8 +39,11 @@ let wasmModulePromise = null;
 let liveSession = null;
 let livePositions = [];
 let liveTriangles = [];
+let livePinned = [];
+let liveCapsule = null;
 let liveStepCount = 0;
 let liveFingerprint = "";
+let liveSourceLabel = "Sheet demo";
 let currentUpload = null;
 let dragState = null;
 
@@ -167,6 +183,10 @@ function drawCapsule(capsule) {
   context.restore();
 }
 
+function pinMarkerRadius() {
+  return Math.max(4, canvas.width / 260);
+}
+
 function drawSurface(positions, triangles, pinned = [], selectedIndex = null) {
   const projected = positions.map(project);
   const orderedTriangles = triangles
@@ -200,19 +220,24 @@ function drawSurface(positions, triangles, pinned = [], selectedIndex = null) {
 
   for (const pinnedIndex of pinned) {
     const point = projected[pinnedIndex];
+    if (!point) {
+      continue;
+    }
     context.beginPath();
-    context.arc(point.x, point.y, Math.max(3, canvas.width / 280), 0, Math.PI * 2);
+    context.arc(point.x, point.y, pinMarkerRadius(), 0, Math.PI * 2);
     context.fillStyle = "#f0c36d";
     context.fill();
   }
 
   if (selectedIndex !== null) {
     const point = projected[selectedIndex];
-    context.beginPath();
-    context.arc(point.x, point.y, Math.max(5, canvas.width / 220), 0, Math.PI * 2);
-    context.strokeStyle = "#f0c36d";
-    context.lineWidth = Math.max(2, canvas.width / 900);
-    context.stroke();
+    if (point) {
+      context.beginPath();
+      context.arc(point.x, point.y, Math.max(6, canvas.width / 210), 0, Math.PI * 2);
+      context.strokeStyle = "#f0c36d";
+      context.lineWidth = Math.max(2, canvas.width / 900);
+      context.stroke();
+    }
   }
 
   return projected;
@@ -227,7 +252,10 @@ function drawFrame() {
   context.clearRect(0, 0, canvas.width, canvas.height);
 
   if (liveSession) {
-    drawSurface(livePositions, liveTriangles, [], dragState?.index ?? null);
+    if (liveCapsule) {
+      drawCapsule(liveCapsule);
+    }
+    drawSurface(livePositions, liveTriangles, livePinned, dragState?.index ?? null);
     return;
   }
 
@@ -239,7 +267,7 @@ function drawFrame() {
   drawCapsule(snapshots.capsule);
   drawSurface(frame.positions, snapshots.triangles, snapshots.pinned);
   slider.value = String(frameIndex);
-  status.textContent = `${snapshots.materialPreset} · step ${frame.step} · fingerprint ${frame.fingerprint} · stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · bend ${frame.maxBendingError.toExponential(2)} · contacts ${frame.collisionProjections} · friction ${frame.frictionCorrections}`;
+  status.textContent = `${snapshots.materialPreset} · reference step ${frame.step} · fingerprint ${frame.fingerprint} · stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · bend ${frame.maxBendingError.toExponential(2)} · contacts ${frame.collisionProjections}`;
 }
 
 function tick(timestamp) {
@@ -320,20 +348,53 @@ function flatTrianglesToVectors(values) {
   return triangles;
 }
 
+function capsuleFromFlat(values) {
+  const flat = Array.from(values);
+  if (flat.length === 0) {
+    return null;
+  }
+  if (flat.length !== 8 || !flat.every(Number.isFinite)) {
+    throw new Error("Rust solver returned invalid capsule collider data");
+  }
+  return {
+    start: flat.slice(0, 3),
+    end: flat.slice(3, 6),
+    radius: flat[6],
+    thickness: flat[7],
+  };
+}
+
+function refreshLivePins() {
+  livePinned = Array.from(liveSession.pinnedIndices());
+  clearPinsButton.disabled = livePinned.length === 0;
+}
+
 function refreshLiveGeometry(refreshFingerprint = false) {
   livePositions = flatPositionsToVectors(liveSession.positions());
-  liveTriangles = flatTrianglesToVectors(liveSession.triangles());
   if (refreshFingerprint || liveFingerprint === "") {
     liveFingerprint = liveSession.fingerprint();
   }
   updateLiveStatus();
 }
 
+function refreshLiveTopology() {
+  livePositions = flatPositionsToVectors(liveSession.positions());
+  liveTriangles = flatTrianglesToVectors(liveSession.triangles());
+  liveCapsule = capsuleFromFlat(liveSession.capsuleCollider());
+  refreshLivePins();
+  liveFingerprint = liveSession.fingerprint();
+  updateLiveStatus();
+}
+
+function selectedMaterialLabel() {
+  return materialPreset.options[materialPreset.selectedIndex]?.textContent ?? materialPreset.value;
+}
+
 function updateLiveStatus() {
-  if (!liveSession || !currentUpload) {
+  if (!liveSession) {
     return;
   }
-  status.textContent = `${currentUpload.name} · ${materialPreset.value} · ${liveSession.vertexCount()} vertices · ${liveSession.triangleCount()} triangles · step ${liveStepCount} · fingerprint ${liveFingerprint}`;
+  status.textContent = `${liveSourceLabel} · ${selectedMaterialLabel()} · ${liveSession.vertexCount()} vertices · ${liveSession.triangleCount()} faces · ${livePinned.length} pins · step ${liveStepCount} · fingerprint ${liveFingerprint}`;
 }
 
 async function loadWasmModule() {
@@ -351,37 +412,87 @@ function extensionOf(filename) {
   return dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
 }
 
-async function activateUpload(upload) {
-  status.textContent = `Loading ${upload.name}…`;
-  const module = await loadWasmModule();
-  const preset = materialPreset.value;
-  let session;
-  if (upload.extension === "obj") {
-    session = module.BrowserClothSession.fromObj(upload.bytes, preset);
-  } else if (upload.extension === "glb") {
-    session = module.BrowserClothSession.fromGlb(upload.bytes, preset);
-  } else {
-    throw new Error("supported garment uploads are .obj and self-contained .glb files");
-  }
+function applyRuntimeControls(session) {
+  session.setGravity(Number(gravityControl.value));
+  session.setSolverIterations(Number(solverIterations.value));
+  session.setVelocityDamping(Number(velocityDamping.value));
+}
 
+function capturePins() {
+  if (!liveSession) {
+    return null;
+  }
+  return livePinned.map((index) => ({ index, target: [...livePositions[index]] }));
+}
+
+function restorePins(session, pins) {
+  if (pins === null) {
+    return;
+  }
+  for (const index of Array.from(session.pinnedIndices())) {
+    session.unpinParticle(index);
+  }
+  const vertexCount = session.vertexCount();
+  for (const pin of pins) {
+    if (pin.index < 0 || pin.index >= vertexCount || !pin.target.every(Number.isFinite)) {
+      continue;
+    }
+    session.pinParticle(pin.index);
+    session.movePin(pin.index, pin.target[0], pin.target[1], pin.target[2]);
+  }
+}
+
+function activateSession(session, sourceLabel, upload, autoplay) {
   if (liveSession && typeof liveSession.free === "function") {
     liveSession.free();
   }
   liveSession = session;
   currentUpload = upload;
+  liveSourceLabel = sourceLabel;
   liveStepCount = 0;
   liveFingerprint = "";
   dragState = null;
-  refreshLiveGeometry(true);
-  projection = computeProjectionFromPositions(livePositions);
+  refreshLiveTopology();
+  projection = computeProjectionFromPositions(livePositions, liveCapsule);
   timeline.hidden = true;
   canvas.classList.add("interactive");
   slider.disabled = true;
   playToggle.disabled = false;
   singleStepButton.disabled = false;
   restartButton.disabled = false;
-  setPlaying(false);
+  useDemoButton.disabled = upload === null;
+  meshResolution.disabled = upload !== null;
+  setPlaying(autoplay);
+  updateInteractionCursor();
   drawFrame();
+}
+
+async function activateDemo(pins = null, autoplay = true) {
+  status.textContent = "Building interactive sheet…";
+  const module = await loadWasmModule();
+  const session = module.BrowserClothSession.fromDemo(
+    Number(meshResolution.value),
+    materialPreset.value,
+  );
+  applyRuntimeControls(session);
+  restorePins(session, pins);
+  activateSession(session, "Sheet demo", null, autoplay);
+}
+
+async function activateUpload(upload, pins = null) {
+  status.textContent = `Loading ${upload.name}…`;
+  const module = await loadWasmModule();
+  let session;
+  if (upload.extension === "obj") {
+    session = module.BrowserClothSession.fromObj(upload.bytes, materialPreset.value);
+  } else if (upload.extension === "glb") {
+    session = module.BrowserClothSession.fromGlb(upload.bytes, materialPreset.value);
+  } else {
+    throw new Error("supported garment uploads are .obj and self-contained .glb files");
+  }
+  applyRuntimeControls(session);
+  restorePins(session, pins);
+  activateSession(session, upload.name, upload, false);
 }
 
 function formatError(error) {
@@ -399,41 +510,44 @@ function canvasPoint(event) {
   };
 }
 
-function nearestLiveParticle(point) {
+function nearestLiveParticle(point, candidateIndices = null, threshold = null) {
   let bestIndex = null;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < livePositions.length; index += 1) {
+  const consider = (index) => {
     const projected = project(livePositions[index]);
+    if (!projected) {
+      return;
+    }
     const distance = Math.hypot(projected.x - point.x, projected.y - point.y);
     if (distance < bestDistance) {
       bestDistance = distance;
       bestIndex = index;
     }
+  };
+
+  if (candidateIndices === null) {
+    for (let index = 0; index < livePositions.length; index += 1) {
+      consider(index);
+    }
+  } else {
+    for (const index of candidateIndices) {
+      if (Number.isInteger(index) && index >= 0 && index < livePositions.length) {
+        consider(index);
+      }
+    }
   }
-  const threshold = Math.max(14 * Math.min(window.devicePixelRatio || 1, 2), canvas.width / 70);
-  return bestDistance <= threshold ? bestIndex : null;
+
+  const hitThreshold =
+    threshold ?? Math.max(14 * Math.min(window.devicePixelRatio || 1, 2), canvas.width / 70);
+  return bestDistance <= hitThreshold ? bestIndex : null;
 }
 
-function beginCanvasDrag(event) {
-  if (!liveSession || dragState) {
-    return;
-  }
+function startPointerManipulation(event, index, kind) {
   const point = canvasPoint(event);
-  const index = nearestLiveParticle(point);
-  if (index === null) {
-    return;
-  }
-
-  try {
-    liveSession.beginDrag(index);
-  } catch (error) {
-    status.textContent = `Cannot drag vertex: ${formatError(error)}`;
-    return;
-  }
-
   const origin = [...livePositions[index]];
   const projected = project(origin);
   dragState = {
+    kind,
     index,
     pointerId: event.pointerId,
     startX: point.x,
@@ -447,11 +561,64 @@ function beginCanvasDrag(event) {
   drawFrame();
 }
 
-function updateCanvasDrag(event) {
-  if (!liveSession || !dragState || event.pointerId !== dragState.pointerId) {
+function beginCanvasDrag(event) {
+  if (!liveSession || dragState) {
+    return;
+  }
+  const point = canvasPoint(event);
+  const mode = interactionMode.value;
+  const pinnedIndex =
+    mode === "pin" || mode === "unpin"
+      ? nearestLiveParticle(point, livePinned, pinMarkerRadius())
+      : null;
+  const index =
+    mode === "unpin"
+      ? pinnedIndex
+      : mode === "pin"
+        ? pinnedIndex ?? nearestLiveParticle(point)
+        : nearestLiveParticle(point);
+  if (index === null) {
     return;
   }
 
+  if (mode === "unpin") {
+    try {
+      liveSession.unpinParticle(index);
+      refreshLivePins();
+      liveFingerprint = liveSession.fingerprint();
+      updateLiveStatus();
+      drawFrame();
+    } catch (error) {
+      status.textContent = `Could not remove pin: ${formatError(error)}`;
+    }
+    event.preventDefault();
+    return;
+  }
+
+  if (mode === "pin") {
+    try {
+      if (!livePinned.includes(index)) {
+        liveSession.pinParticle(index);
+        refreshLivePins();
+      }
+      startPointerManipulation(event, index, "pin");
+    } catch (error) {
+      status.textContent = `Could not place pin: ${formatError(error)}`;
+    }
+    return;
+  }
+
+  try {
+    liveSession.beginDrag(index);
+    startPointerManipulation(event, index, "drag");
+  } catch (error) {
+    status.textContent = livePinned.includes(index)
+      ? "That vertex is pinned. Switch the pointer tool to Add / move pins or Remove pins."
+      : `Cannot drag vertex: ${formatError(error)}`;
+  }
+}
+
+function pointerTarget(event) {
   const point = canvasPoint(event);
   const dx = (point.x - dragState.startX) / dragState.scale;
   const dy = (point.y - dragState.startY) / dragState.scale;
@@ -461,16 +628,25 @@ function updateCanvasDrag(event) {
   const pitchSin = Math.sin(PITCH);
   const right = [yawCos, 0, -yawSin];
   const up = [-yawSin * pitchSin, pitchCos, -yawCos * pitchSin];
-  const target = dragState.origin.map(
-    (value, axis) => value + right[axis] * dx - up[axis] * dy,
-  );
+  return dragState.origin.map((value, axis) => value + right[axis] * dx - up[axis] * dy);
+}
 
+function updateCanvasDrag(event) {
+  if (!liveSession || !dragState || event.pointerId !== dragState.pointerId) {
+    return;
+  }
+
+  const target = pointerTarget(event);
   try {
-    liveSession.dragTo(target[0], target[1], target[2]);
+    if (dragState.kind === "pin") {
+      liveSession.movePin(dragState.index, target[0], target[1], target[2]);
+    } else {
+      liveSession.dragTo(target[0], target[1], target[2]);
+    }
     refreshLiveGeometry(false);
     drawFrame();
   } catch (error) {
-    status.textContent = `Drag stopped: ${formatError(error)}`;
+    status.textContent = `Pointer interaction stopped: ${formatError(error)}`;
     finishCanvasDrag(event);
   }
   event.preventDefault();
@@ -481,11 +657,13 @@ function finishCanvasDrag(event) {
     return;
   }
   try {
-    liveSession.endDrag();
+    if (dragState.kind === "drag") {
+      liveSession.endDrag();
+    }
     liveFingerprint = liveSession.fingerprint();
     updateLiveStatus();
   } catch (error) {
-    status.textContent = `Drag release failed: ${formatError(error)}`;
+    status.textContent = `Pointer release failed: ${formatError(error)}`;
   }
   if (canvas.hasPointerCapture(event.pointerId)) {
     canvas.releasePointerCapture(event.pointerId);
@@ -496,16 +674,65 @@ function finishCanvasDrag(event) {
   drawFrame();
 }
 
+function rowsForResolution(resolution) {
+  return (
+    Math.floor(
+      ((resolution - 1) * DEMO_ROWS_NUMERATOR + Math.floor(DEMO_ROWS_DENOMINATOR / 2)) /
+        DEMO_ROWS_DENOMINATOR,
+    ) + 1
+  );
+}
+
+function faceCountForResolution(resolution) {
+  const rows = rowsForResolution(resolution);
+  return 2 * (resolution - 1) * (rows - 1);
+}
+
+function updateControlLabels() {
+  const resolution = Number(meshResolution.value);
+  meshResolutionValue.textContent = `${faceCountForResolution(resolution)} faces`;
+  gravityValue.textContent = `${Number(gravityControl.value).toFixed(2)} m/s²`;
+  solverIterationsValue.textContent = solverIterations.value;
+  velocityDampingValue.textContent = Number(velocityDamping.value).toFixed(3);
+}
+
+function updateInteractionCursor() {
+  canvas.classList.toggle("pin-tool", interactionMode.value === "pin");
+  canvas.classList.toggle("unpin-tool", interactionMode.value === "unpin");
+}
+
+function isFiniteVec3(value) {
+  return Array.isArray(value) && value.length === 3 && value.every(Number.isFinite);
+}
+
 function validateSnapshots(data) {
   if (!Array.isArray(data.frames) || data.frames.length === 0) {
     throw new Error("snapshot payload has no frames");
   }
   if (
     !data.capsule ||
-    !Array.isArray(data.capsule.start) ||
-    !Array.isArray(data.capsule.end)
+    !isFiniteVec3(data.capsule.start) ||
+    !isFiniteVec3(data.capsule.end) ||
+    !Number.isFinite(data.capsule.radius) ||
+    !Number.isFinite(data.capsule.thickness)
   ) {
-    throw new Error("snapshot payload has no capsule collider metadata");
+    throw new Error("snapshot payload has invalid capsule collider metadata");
+  }
+  if (!Array.isArray(data.triangles) || data.triangles.length === 0) {
+    throw new Error("snapshot payload has no triangle topology");
+  }
+  if (
+    !data.triangles.every(
+      (triangle) =>
+        Array.isArray(triangle) &&
+        triangle.length === 3 &&
+        triangle.every((index) => Number.isInteger(index) && index >= 0),
+    )
+  ) {
+    throw new Error("snapshot payload has invalid triangle topology");
+  }
+  if (!Array.isArray(data.pinned) || !data.pinned.every(Number.isInteger)) {
+    throw new Error("snapshot payload has invalid pinned-particle metadata");
   }
   if (typeof data.materialPreset !== "string" || data.materialPreset.length === 0) {
     throw new Error("snapshot payload has no material preset evidence");
@@ -519,44 +746,22 @@ function validateSnapshots(data) {
   ) {
     throw new Error("snapshot payload has no raw material parameter evidence");
   }
-  if (!Array.isArray(data.presetSummaries) || data.presetSummaries.length !== 4) {
-    throw new Error("snapshot payload has no four-preset qualitative evidence");
-  }
   if (
-    !data.presetSummaries.every(
-      (summary) =>
-        typeof summary.name === "string" &&
-        Number.isFinite(summary.bottomMiddleY) &&
-        Number.isFinite(summary.maxStretchError) &&
-        Number.isFinite(summary.maxShearError) &&
-        Number.isFinite(summary.maxBendingError) &&
-        Number.isInteger(summary.collisionProjections) &&
-        Number.isInteger(summary.frictionCorrections),
+    !data.frames.every(
+      (frame) =>
+        Number.isInteger(frame.step) &&
+        typeof frame.fingerprint === "string" &&
+        frame.fingerprint.length > 0 &&
+        Array.isArray(frame.positions) &&
+        frame.positions.length > 0 &&
+        frame.positions.every(isFiniteVec3) &&
+        Number.isFinite(frame.maxStretchError) &&
+        Number.isFinite(frame.maxShearError) &&
+        Number.isFinite(frame.maxBendingError) &&
+        Number.isInteger(frame.collisionProjections),
     )
   ) {
-    throw new Error("snapshot payload has invalid material fixture evidence");
-  }
-  if (
-    !data.selfCollisionFixture ||
-    !Number.isFinite(data.selfCollisionFixture.thickness) ||
-    !Number.isFinite(data.selfCollisionFixture.outputY) ||
-    !Number.isInteger(data.selfCollisionFixture.broadPhasePairs) ||
-    !Number.isInteger(data.selfCollisionFixture.vertexTriangleCandidates) ||
-    !Number.isInteger(data.selfCollisionFixture.adjacencyExclusions) ||
-    !Number.isInteger(data.selfCollisionFixture.narrowPhaseTests) ||
-    data.selfCollisionFixture.projections !== 1 ||
-    Math.abs(data.selfCollisionFixture.outputY - data.selfCollisionFixture.thickness) > 1e-10
-  ) {
-    throw new Error("snapshot payload has invalid vertex-triangle self-collision evidence");
-  }
-  if (!data.frames.every((frame) => Number.isFinite(frame.maxShearError))) {
-    throw new Error("snapshot payload has no shear error evidence");
-  }
-  if (!data.frames.every((frame) => Number.isFinite(frame.maxBendingError))) {
-    throw new Error("snapshot payload has no bending error evidence");
-  }
-  if (!data.frames.every((frame) => Number.isInteger(frame.frictionCorrections))) {
-    throw new Error("snapshot payload has no friction correction evidence");
+    throw new Error("snapshot payload has invalid rendered frame evidence");
   }
 }
 
@@ -585,15 +790,19 @@ singleStepButton.addEventListener("click", () => {
 
 restartButton.addEventListener("click", () => {
   if (liveSession) {
-    liveSession.reset();
-    liveStepCount = 0;
-    liveFingerprint = "";
-    dragState = null;
-    canvas.classList.remove("dragging");
-    refreshLiveGeometry(true);
-    projection = computeProjectionFromPositions(livePositions);
-    setPlaying(false);
-    drawFrame();
+    try {
+      liveSession.reset();
+      liveStepCount = 0;
+      liveFingerprint = "";
+      dragState = null;
+      canvas.classList.remove("dragging");
+      refreshLiveTopology();
+      projection = computeProjectionFromPositions(livePositions, liveCapsule);
+      setPlaying(true);
+      drawFrame();
+    } catch (error) {
+      status.textContent = `Simulation reset failed: ${formatError(error)}`;
+    }
     return;
   }
   frameIndex = 0;
@@ -630,14 +839,94 @@ garmentUpload.addEventListener("change", async () => {
   }
 });
 
+useDemoButton.addEventListener("click", async () => {
+  try {
+    await activateDemo();
+  } catch (error) {
+    status.textContent = `Could not restore sheet demo: ${formatError(error)}`;
+  }
+});
+
 materialPreset.addEventListener("change", async () => {
-  if (!currentUpload) {
+  const pins = capturePins();
+  try {
+    if (currentUpload) {
+      await activateUpload(currentUpload, pins);
+    } else {
+      await activateDemo(pins, playing);
+    }
+  } catch (error) {
+    status.textContent = `Could not apply textile preset: ${formatError(error)}`;
+  }
+});
+
+meshResolution.addEventListener("input", updateControlLabels);
+meshResolution.addEventListener("change", async () => {
+  if (currentUpload) {
     return;
   }
   try {
-    await activateUpload(currentUpload);
+    await activateDemo(null, playing);
   } catch (error) {
-    status.textContent = `Could not apply textile preset: ${formatError(error)}`;
+    status.textContent = `Could not rebuild sheet mesh: ${formatError(error)}`;
+  }
+});
+
+gravityControl.addEventListener("input", () => {
+  updateControlLabels();
+  if (!liveSession) {
+    return;
+  }
+  try {
+    liveSession.setGravity(Number(gravityControl.value));
+  } catch (error) {
+    status.textContent = `Could not change gravity: ${formatError(error)}`;
+  }
+});
+
+solverIterations.addEventListener("input", () => {
+  updateControlLabels();
+  if (!liveSession) {
+    return;
+  }
+  try {
+    liveSession.setSolverIterations(Number(solverIterations.value));
+  } catch (error) {
+    status.textContent = `Could not change solver iterations: ${formatError(error)}`;
+  }
+});
+
+velocityDamping.addEventListener("input", () => {
+  updateControlLabels();
+  if (!liveSession) {
+    return;
+  }
+  try {
+    liveSession.setVelocityDamping(Number(velocityDamping.value));
+  } catch (error) {
+    status.textContent = `Could not change velocity damping: ${formatError(error)}`;
+  }
+});
+
+interactionMode.addEventListener("change", () => {
+  updateInteractionCursor();
+  drawFrame();
+});
+
+clearPinsButton.addEventListener("click", () => {
+  if (!liveSession || dragState) {
+    return;
+  }
+  try {
+    for (const index of [...livePinned]) {
+      liveSession.unpinParticle(index);
+    }
+    refreshLivePins();
+    liveFingerprint = liveSession.fingerprint();
+    updateLiveStatus();
+    drawFrame();
+  } catch (error) {
+    status.textContent = `Could not clear pins: ${formatError(error)}`;
   }
 });
 
@@ -646,6 +935,9 @@ canvas.addEventListener("pointermove", updateCanvasDrag);
 canvas.addEventListener("pointerup", finishCanvasDrag);
 canvas.addEventListener("pointercancel", finishCanvasDrag);
 window.addEventListener("resize", drawFrame);
+
+updateControlLabels();
+updateInteractionCursor();
 
 fetch("frames.json")
   .then((response) => {
@@ -657,16 +949,24 @@ fetch("frames.json")
   .then((data) => {
     validateSnapshots(data);
     snapshots = data;
-    projection = computeSnapshotProjection(data);
     slider.max = String(data.frames.length - 1);
-    slider.disabled = false;
-    playToggle.disabled = false;
-    singleStepButton.disabled = false;
-    restartButton.disabled = false;
-    drawFrame();
+    if (!liveSession) {
+      projection = computeSnapshotProjection(data);
+      slider.disabled = false;
+      playToggle.disabled = false;
+      singleStepButton.disabled = false;
+      restartButton.disabled = false;
+      drawFrame();
+    }
   })
   .catch((error) => {
-    status.textContent = `Reference demo unavailable: ${formatError(error)}. Garment upload can still be used.`;
+    if (!liveSession) {
+      status.textContent = `Reference demo unavailable: ${formatError(error)}`;
+    }
   });
+
+activateDemo().catch((error) => {
+  status.textContent = `Interactive demo unavailable: ${formatError(error)}. Falling back to reference snapshots.`;
+});
 
 window.requestAnimationFrame(tick);
