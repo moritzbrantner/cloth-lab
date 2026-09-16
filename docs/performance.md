@@ -2,13 +2,19 @@
 
 `cloth-lab` keeps performance measurements separate from correctness gates. The reference profiler is intentionally deterministic in topology, fixed-step inputs, solver settings, and replay state, but it does not impose wall-clock pass/fail thresholds in ordinary CI.
 
-Run the profile with:
+Run the real profile in a release build:
 
 ```text
 cargo run --locked --release --example performance_profile
 ```
 
-The output is a small Markdown table with median/min/max nanoseconds per simulation step plus the final deterministic state fingerprint for every lane. Each timing sample starts from a fresh copy of the same fixture, and all samples for one lane must end on the same fingerprint or the profiler fails.
+CI runs only the small functional smoke form:
+
+```text
+cargo run --locked --example performance_profile -- --smoke
+```
+
+The smoke run exists to prove that every workload still constructs, steps, and replays deterministically. Its timings are not performance evidence. The release run prints a Markdown table with median/min/max nanoseconds per simulation step plus the final deterministic state fingerprint for every lane. Each timing sample starts from a fresh copy of the same fixture, and all samples for one lane must end on the same fingerprint or the profiler fails.
 
 ## Stable lanes
 
@@ -18,7 +24,7 @@ The output is a small Markdown table with median/min/max nanoseconds per simulat
 - `layered-no-self-collision`: two close, disconnected sheets with eight iterations and self-collision disabled. This is the control workload for the self-collision lane.
 - `layered-self-collision`: the identical layered fixture with vertex/triangle self-collision enabled. Compare it with the control lane to observe the incremental broad-phase, narrow-phase, and projection cost.
 
-The paired lanes are deliberate. They keep normal production APIs authoritative and avoid exposing partially-stepped solver phases merely for benchmarking. If future profiling shows a real hot path that needs a narrower API, that API should be justified by production computation boundaries rather than by the benchmark harness.
+The paired lanes are deliberate. They keep normal production APIs authoritative and avoid exposing partially stepped solver phases merely for benchmarking. If future profiling shows a real hot path that needs a narrower API, that API should be justified by production computation boundaries rather than by the benchmark harness.
 
 ## Comparability rules
 
