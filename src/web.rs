@@ -4,8 +4,8 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     CapsuleCollider, ClothCollider, ContactConfig, FixedStepConfig, GarmentAsset, GarmentImporter,
-    GarmentSourceFormat, GlbGarmentImporter, ObjGarmentImporter, ParticleDrag, StepReport,
-    TextilePreset, TriangleMeshCloth, Vec3,
+    GarmentSourceFormat, GlbGarmentImporter, ObjGarmentImporter, ParticleDrag, SelfCollisionConfig,
+    SelfCollisionReport, StepReport, TextilePreset, TriangleMeshCloth, Vec3,
 };
 
 mod obstacle;
@@ -41,7 +41,9 @@ pub struct BrowserClothSession {
     capsule: Option<CapsuleCollider>,
     source_kind: &'static str,
     normalized_asset_fingerprint: Option<u64>,
+    self_collision_config: Option<SelfCollisionConfig>,
     last_report: Option<StepReport>,
+    last_self_collision_report: SelfCollisionReport,
 }
 
 #[wasm_bindgen]
@@ -109,7 +111,9 @@ impl BrowserClothSession {
             capsule: Some(DEMO_CAPSULE),
             source_kind: "generated-sheet",
             normalized_asset_fingerprint: None,
+            self_collision_config: None,
             last_report: None,
+            last_self_collision_report: SelfCollisionReport::default(),
         };
         session.pin_particle_at(0, positions[0])?;
         session.pin_particle_at(columns - 1, positions[columns - 1])?;
@@ -264,12 +268,59 @@ impl BrowserClothSession {
             .map_or(0, |report| report.friction_corrections)
     }
 
+    #[wasm_bindgen(js_name = lastSelfCollisionCandidates)]
+    #[must_use]
+    pub fn last_self_collision_candidates(&self) -> usize {
+        self.last_self_collision_report.vertex_triangle_candidates
+    }
+
+    #[wasm_bindgen(js_name = lastSelfCollisionTests)]
+    #[must_use]
+    pub fn last_self_collision_tests(&self) -> usize {
+        self.last_self_collision_report.narrow_phase_tests
+    }
+
+    #[wasm_bindgen(js_name = lastSelfCollisionProjections)]
+    #[must_use]
+    pub fn last_self_collision_projections(&self) -> usize {
+        self.last_self_collision_report.projections
+    }
+
+    #[wasm_bindgen(js_name = setSelfCollision)]
+    pub fn set_self_collision(&mut self, enabled: bool, thickness: f64) -> Result<(), JsValue> {
+        let next = if enabled {
+            let config = SelfCollisionConfig { thickness };
+            config.validate().map_err(js_error)?;
+            Some(config)
+        } else {
+            None
+        };
+        self.self_collision_config = next;
+        self.last_self_collision_report = SelfCollisionReport::default();
+        Ok(())
+    }
+
     pub fn step(&mut self) -> Result<(), JsValue> {
-        let report = self
-            .cloth
-            .step_with_contacts(self.step_config, &self.colliders, self.contact_config)
-            .map_err(js_error)?;
-        self.last_report = Some(report);
+        if let Some(self_collision) = self.self_collision_config {
+            let report = self
+                .cloth
+                .step_with_contacts_and_self_collision(
+                    self.step_config,
+                    &self.colliders,
+                    self.contact_config,
+                    self_collision,
+                )
+                .map_err(js_error)?;
+            self.last_report = Some(report.solver);
+            self.last_self_collision_report = report.self_collision;
+        } else {
+            let report = self
+                .cloth
+                .step_with_contacts(self.step_config, &self.colliders, self.contact_config)
+                .map_err(js_error)?;
+            self.last_report = Some(report);
+            self.last_self_collision_report = SelfCollisionReport::default();
+        }
         Ok(())
     }
 
@@ -283,6 +334,7 @@ impl BrowserClothSession {
         self.drag = None;
         self.pins.clear();
         self.last_report = None;
+        self.last_self_collision_report = SelfCollisionReport::default();
         for (index, target) in targets {
             self.pin_particle_at(index, target)?;
         }
@@ -457,7 +509,9 @@ fn build_session(asset: GarmentAsset, preset: &str) -> Result<BrowserClothSessio
         capsule: None,
         source_kind,
         normalized_asset_fingerprint: Some(normalized_asset_fingerprint),
+        self_collision_config: None,
         last_report: None,
+        last_self_collision_report: SelfCollisionReport::default(),
     })
 }
 
