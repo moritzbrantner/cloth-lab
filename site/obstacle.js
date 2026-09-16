@@ -136,6 +136,44 @@ function syncObstacleFromSession() {
   updateObstacleInspector();
 }
 
+function captureObstacleConfig() {
+  if (!liveSession) {
+    return null;
+  }
+  return {
+    kind: liveObstacle?.kind ?? "none",
+    center: liveObstacle
+      ? [...liveObstacle.center]
+      : [
+          Number(obstacleXControl.value),
+          Number(obstacleYControl.value),
+          Number(obstacleZControl.value),
+        ],
+    radius: liveObstacle?.radius ?? Number(obstacleRadiusControl.value),
+    thickness: liveObstacle?.thickness ?? Number(obstacleThicknessControl.value),
+    halfLength: liveObstacle?.halfLength ?? Number(obstacleLengthControl.value) / 2,
+  };
+}
+
+function restoreObstacleConfig(config) {
+  if (!config || !liveSession) {
+    return;
+  }
+  liveSession.setObstacle(
+    config.kind,
+    config.center[0],
+    config.center[1],
+    config.center[2],
+    config.radius,
+    config.thickness,
+    config.halfLength,
+  );
+  syncObstacleFromSession();
+  projection = computeProjectionFromPositions(livePositions, liveCapsule);
+  updateLiveStatus();
+  drawFrame();
+}
+
 function applyObstacleControls() {
   if (!liveSession || obstacleDragState) {
     return;
@@ -209,6 +247,20 @@ const baseRefreshLiveTopology = refreshLiveTopology;
 refreshLiveTopology = function () {
   baseRefreshLiveTopology();
   syncObstacleFromSession();
+};
+
+const baseActivateDemo = activateDemo;
+activateDemo = async function (pins = null, autoplay = true) {
+  const obstacle = captureObstacleConfig();
+  await baseActivateDemo(pins, autoplay);
+  restoreObstacleConfig(obstacle);
+};
+
+const baseActivateUpload = activateUpload;
+activateUpload = async function (upload, pins = null) {
+  const obstacle = captureObstacleConfig();
+  await baseActivateUpload(upload, pins);
+  restoreObstacleConfig(obstacle);
 };
 
 function drawSphereObstacle(obstacle) {
@@ -354,9 +406,14 @@ function moveObstacleDrag(event) {
   const pitchSin = Math.sin(PITCH);
   const right = [yawCos, 0, -yawSin];
   const up = [-yawSin * pitchSin, pitchCos, -yawCos * pitchSin];
-  const target = obstacleDragState.origin.map(
+  const rawTarget = obstacleDragState.origin.map(
     (value, axis) => value + right[axis] * dx - up[axis] * dy,
   );
+  const target = [
+    clampToControl(obstacleXControl, rawTarget[0]),
+    clampToControl(obstacleYControl, rawTarget[1]),
+    clampToControl(obstacleZControl, rawTarget[2]),
+  ];
 
   try {
     liveSession.setObstacle(
