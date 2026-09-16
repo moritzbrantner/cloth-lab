@@ -236,6 +236,60 @@ mod interaction_tests {
         assert_eq!(first.state_fingerprint(), second.state_fingerprint());
     }
 
+    fn run_interactive_session_script() -> (Vec<Particle>, u64) {
+        let mut cloth = mesh_fixture();
+        let step = FixedStepConfig {
+            delta_seconds: 1.0 / 60.0,
+            gravity: Vec3::new(0.0, -3.25, 0.0),
+            solver_iterations: 7,
+            velocity_damping: 0.98,
+        };
+        let contact = ContactConfig {
+            friction_coefficient: 0.35,
+        };
+        let colliders = [ClothCollider::Capsule(CapsuleCollider {
+            start: Vec3::new(-0.1, -0.18, 0.1),
+            end: Vec3::new(0.3, -0.18, 0.1),
+            radius: 0.08,
+            thickness: 0.01,
+        })];
+
+        let first_pin = cloth.begin_particle_drag(0).unwrap();
+        let second_pin = cloth.begin_particle_drag(1).unwrap();
+        cloth
+            .update_particle_drag(first_pin, Vec3::new(-0.02, 0.06, 0.0))
+            .unwrap();
+        cloth
+            .update_particle_drag(second_pin, Vec3::new(0.23, 0.03, -0.02))
+            .unwrap();
+
+        for step_index in 0..48 {
+            if step_index == 16 {
+                cloth
+                    .update_particle_drag(second_pin, Vec3::new(0.25, 0.09, -0.04))
+                    .unwrap();
+            }
+            if step_index == 28 {
+                cloth.end_particle_drag(second_pin).unwrap();
+                assert!(cloth.particles()[1].inverse_mass() > 0.0);
+            }
+            cloth.step_with_contacts(step, &colliders, contact).unwrap();
+        }
+
+        assert_eq!(cloth.particles()[0].inverse_mass(), 0.0);
+        assert!(cloth.particles()[1].inverse_mass() > 0.0);
+        let fingerprint = cloth.state_fingerprint();
+        (cloth.particles().to_vec(), fingerprint)
+    }
+
+    #[test]
+    fn interactive_pin_and_runtime_configuration_replay_is_deterministic() {
+        let first = run_interactive_session_script();
+        let second = run_interactive_session_script();
+
+        assert_eq!(first, second);
+    }
+
     #[test]
     fn invalid_target_fails_closed() {
         let mut cloth = mesh_fixture();
