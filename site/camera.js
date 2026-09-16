@@ -135,7 +135,6 @@ function moveObstacleDragCameraAware(event) {
       liveObstacle.halfLength,
     );
     syncObstacleFromSession();
-    projection = computeProjectionFromPositions(livePositions, liveCapsule);
     updateLiveStatus();
     drawFrame();
   } catch (error) {
