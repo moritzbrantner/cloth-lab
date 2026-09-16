@@ -146,10 +146,7 @@ pub fn solve_vertex_triangle_self_collision(
     let topology = SelfCollisionTopology::new(triangles);
     validate_inputs(particles, triangles, config)?;
     Ok(solve_vertex_triangle_self_collision_prevalidated(
-        particles,
-        triangles,
-        &topology,
-        config,
+        particles, triangles, &topology, config,
     ))
 }
 
@@ -281,10 +278,7 @@ fn validate_inputs<P: SelfCollisionPoint>(
     Ok(())
 }
 
-fn validate_broad_phase_position(
-    position: Vec3,
-    thickness: f64,
-) -> Result<(), SelfCollisionError> {
+fn validate_broad_phase_position(position: Vec3, thickness: f64) -> Result<(), SelfCollisionError> {
     if !position.is_finite() {
         return Err(SelfCollisionError::InvalidParticlePosition);
     }
