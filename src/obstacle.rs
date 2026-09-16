@@ -61,9 +61,13 @@ impl ClothObstacleConfig {
                 let offset = Vec3::new(self.capsule_half_length, 0.0, 0.0);
                 let start = self.center - offset;
                 let end = self.center + offset;
+                let axis = end - start;
+                let axis_length_squared = axis.length_squared();
                 if !start.is_finite()
                     || !end.is_finite()
-                    || (end - start).length_squared() <= f64::EPSILON
+                    || !axis.is_finite()
+                    || !axis_length_squared.is_finite()
+                    || axis_length_squared <= f64::EPSILON
                 {
                     return Err(ClothObstacleError::InvalidCapsuleAxis);
                 }
@@ -203,6 +207,16 @@ mod tests {
             .colliders()
             .unwrap_err(),
             ClothObstacleError::InvalidCapsuleHalfLength
+        );
+        assert_eq!(
+            ClothObstacleConfig {
+                center: Vec3::ZERO,
+                capsule_half_length: f64::MAX,
+                ..base
+            }
+            .colliders()
+            .unwrap_err(),
+            ClothObstacleError::InvalidCapsuleAxis
         );
         assert_eq!(
             ClothObstacleConfig {
