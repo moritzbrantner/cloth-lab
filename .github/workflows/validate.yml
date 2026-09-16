@@ -31,4 +31,6 @@ jobs:
           cargo run --locked --example pages_snapshot > /tmp/cloth-lab-frames.json
           test -s /tmp/cloth-lab-frames.json
       - name: Check Pages JavaScript
-        run: node --check site/app.js
+        run: |
+          node --check site/app.js
+          node --check site/obstacle.js
