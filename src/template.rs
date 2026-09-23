@@ -157,8 +157,7 @@ fn build_sheet(columns: usize) -> GarmentTemplateAsset {
         thickness: COLLISION_THICKNESS,
     };
 
-    let rows =
-        ((columns - 1) * ROWS_NUMERATOR + ROWS_DENOMINATOR / 2) / ROWS_DENOMINATOR + 1;
+    let rows = ((columns - 1) * ROWS_NUMERATOR + ROWS_DENOMINATOR / 2) / ROWS_DENOMINATOR + 1;
     let spacing = WIDTH / (columns - 1) as f64;
     let mut positions = Vec::with_capacity(columns * rows);
     for row in 0..rows {
@@ -190,11 +189,7 @@ fn build_t_shirt(columns: usize) -> GarmentTemplateAsset {
         -0.72,
         0.52,
         |row_fraction| {
-            if row_fraction <= 0.28 {
-                1.18
-            } else {
-                0.68
-            }
+            if row_fraction <= 0.28 { 1.18 } else { 0.68 }
         },
         |x| {
             let neck_half_width = 0.34;
@@ -394,7 +389,9 @@ mod tests {
             TriangleMeshCloth::new(
                 asset.positions(),
                 asset.triangles(),
-                TextilePreset::CottonLike.parameters().triangle_mesh_config(1.0),
+                TextilePreset::CottonLike
+                    .parameters()
+                    .triangle_mesh_config(1.0),
             )
             .expect("template mesh must satisfy solver topology requirements");
         }
@@ -414,7 +411,10 @@ mod tests {
         let top = &asset.positions()[..18];
         let center = top[18 / 2];
         let shoulder = top[3];
-        assert!(center.y < shoulder.y, "neckline should dip below the shoulder edge");
+        assert!(
+            center.y < shoulder.y,
+            "neckline should dip below the shoulder edge"
+        );
         assert_eq!(asset.scene_colliders().len(), 5);
         assert_eq!(asset.pinned_indices().len(), 2);
     }
