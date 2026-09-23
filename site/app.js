@@ -12,6 +12,7 @@ const timeline = document.querySelector(".timeline");
 const status = document.querySelector("#status");
 const garmentUpload = document.querySelector("#garment-upload");
 const garmentTemplate = document.querySelector("#garment-template");
+const templateSummary = document.querySelector("#template-summary");
 const materialPreset = document.querySelector("#material-preset");
 const meshResolution = document.querySelector("#mesh-resolution");
 const meshResolutionValue = document.querySelector("#mesh-resolution-value");
@@ -29,6 +30,7 @@ const inspectTopology = document.querySelector("#inspect-topology");
 const inspectConstraints = document.querySelector("#inspect-constraints");
 const inspectErrors = document.querySelector("#inspect-errors");
 const inspectContacts = document.querySelector("#inspect-contacts");
+const inspectMannequin = document.querySelector("#inspect-mannequin");
 
 const YAW = -0.62;
 const PITCH = 0.58;
@@ -37,6 +39,15 @@ const MAX_STEPS_PER_FRAME = 4;
 const DEMO_ROWS_NUMERATOR = 11;
 const DEMO_ROWS_DENOMINATOR = 13;
 const MAX_NORMAL_MARKERS = 180;
+
+const TEMPLATE_SUMMARIES = Object.freeze({
+  sheet: "Free sheet fixture with an editable capsule obstacle and no mannequin.",
+  "t-shirt": "Short-sleeve front drape over the mannequin torso and arms.",
+  cape: "Back drape pinned at the shoulders against the mannequin upper body.",
+  skirt: "Waist-pinned flared drape using pelvis and leg collision geometry.",
+  dress: "Long torso-to-knee drape combining a fitted waist with a flared lower section.",
+  poncho: "Wide shoulder-pinned drape for broad folds across the upper body.",
+});
 
 let snapshots = null;
 let frameIndex = 0;
@@ -614,6 +625,11 @@ function selectedMaterialLabel() {
   return materialPreset.options[materialPreset.selectedIndex]?.textContent ?? materialPreset.value;
 }
 
+function updateTemplateSummary() {
+  templateSummary.textContent =
+    TEMPLATE_SUMMARIES[garmentTemplate.value] ?? "Deterministic generated cloth fixture.";
+}
+
 function sourceKindLabel(sourceKind) {
   switch (sourceKind) {
     case "generated-sheet":
@@ -625,6 +641,10 @@ function sourceKindLabel(sourceKind) {
       return "Cape template";
     case "template-skirt":
       return "Skirt template";
+    case "template-dress":
+      return "Dress template";
+    case "template-poncho":
+      return "Poncho template";
     case "obj":
       return "OBJ upload";
     case "glb":
@@ -652,6 +672,8 @@ function updateLiveInspector() {
   inspectConstraints.textContent = `${liveSession.stretchConstraintCount()} stretch · ${liveSession.bendingConstraintCount()} bend`;
   inspectErrors.textContent = `stretch ${maxStretchError.toExponential(2)} · bend ${maxBendingError.toExponential(2)}`;
   inspectContacts.textContent = `${liveSession.lastCollisionProjections()} projections · ${liveSession.lastFrictionCorrections()} friction`;
+  inspectMannequin.textContent =
+    liveSceneColliders.length === 0 ? "none" : `${liveSceneColliders.length} solver colliders`;
 }
 
 function updateSnapshotInspector(frame) {
@@ -661,6 +683,7 @@ function updateSnapshotInspector(frame) {
   inspectConstraints.textContent = "not serialized";
   inspectErrors.textContent = `stretch ${frame.maxStretchError.toExponential(2)} · shear ${frame.maxShearError.toExponential(2)} · bend ${frame.maxBendingError.toExponential(2)}`;
   inspectContacts.textContent = `${frame.collisionProjections} projections · ${frame.frictionCorrections} friction`;
+  inspectMannequin.textContent = "reference capsule only";
 }
 
 function updateLiveStatus() {
@@ -742,6 +765,7 @@ function activateSession(session, sourceLabel, upload, autoplay) {
 }
 
 async function activateDemo(pins = null, autoplay = true) {
+  updateTemplateSummary();
   const templateLabel =
     garmentTemplate.options[garmentTemplate.selectedIndex]?.textContent ?? garmentTemplate.value;
   status.textContent = `Building ${templateLabel} template…`;
@@ -757,6 +781,8 @@ async function activateDemo(pins = null, autoplay = true) {
 }
 
 async function activateUpload(upload, pins = null) {
+  templateSummary.textContent =
+    "Uploaded geometry uses the normalized garment asset path; unsupported seam or material semantics are not inferred.";
   status.textContent = `Loading ${upload.name}…`;
   const module = await loadWasmModule();
   let session;
@@ -1121,7 +1147,7 @@ useDemoButton.addEventListener("click", async () => {
   try {
     await activateDemo();
   } catch (error) {
-    status.textContent = `Could not restore sheet demo: ${formatError(error)}`;
+    status.textContent = `Could not restore garment template: ${formatError(error)}`;
   }
 });
 
@@ -1154,7 +1180,7 @@ meshResolution.addEventListener("change", async () => {
   try {
     await activateDemo(null, playing);
   } catch (error) {
-    status.textContent = `Could not rebuild sheet mesh: ${formatError(error)}`;
+    status.textContent = `Could not rebuild garment template: ${formatError(error)}`;
   }
 });
 
