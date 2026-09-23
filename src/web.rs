@@ -486,12 +486,9 @@ fn build_template_session(
         ClothCollider::Capsule(capsule) => Some(capsule),
         ClothCollider::Sphere(_) => None,
     });
-    let cloth = TriangleMeshCloth::new(
-        &positions,
-        &triangles,
-        parameters.triangle_mesh_config(1.0),
-    )
-    .map_err(js_error)?;
+    let cloth =
+        TriangleMeshCloth::new(&positions, &triangles, parameters.triangle_mesh_config(1.0))
+            .map_err(js_error)?;
     let mut session = BrowserClothSession {
         initial: cloth.clone(),
         cloth,
