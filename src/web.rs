@@ -37,6 +37,17 @@ pub struct BrowserClothSession {
     last_self_collision_report: SelfCollisionReport,
 }
 
+#[wasm_bindgen(js_name = garmentTemplateCatalog)]
+pub fn garment_template_catalog() -> Vec<String> {
+    let mut catalog = Vec::with_capacity(GarmentTemplate::ALL.len() * 3);
+    for template in GarmentTemplate::ALL {
+        catalog.push(template.key().to_owned());
+        catalog.push(template.display_name().to_owned());
+        catalog.push(template.summary().to_owned());
+    }
+    catalog
+}
+
 #[wasm_bindgen]
 impl BrowserClothSession {
     #[wasm_bindgen(js_name = fromObj)]
