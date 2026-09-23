@@ -194,6 +194,17 @@ input:disabled {
   background: rgba(8, 12, 17, 0.48);
 }
 
+.template-summary {
+  grid-column: 1 / -1;
+  margin: -2px 0 2px;
+  padding: 10px 12px;
+  border-left: 2px solid #516a83;
+  background: rgba(81, 106, 131, 0.09);
+  color: #a9b5c3;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
 .obstacle-panel {
   padding: 13px 20px 16px;
   border-bottom: 1px solid #28313d;
