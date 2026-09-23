@@ -38,3 +38,6 @@ jobs:
           node --check site/self_collision.js
           node --check site/obstacle.js
           node --check site/camera.js
+          node --check site/precision-controls.js
+      - name: Test exact numeric controls
+        run: node --test tests/precision-controls.test.cjs

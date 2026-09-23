@@ -61,11 +61,11 @@ function updateCameraLabels() {
 }
 
 function syncCameraControls() {
-  cameraYawControl.value = degrees(cameraYaw).toFixed(1);
-  cameraPitchControl.value = degrees(cameraPitch).toFixed(1);
-  cameraZoomControl.value = cameraZoom.toFixed(2);
-  cameraPanXControl.value = cameraPanX.toFixed(3);
-  cameraPanYControl.value = cameraPanY.toFixed(3);
+  cameraYawControl.value = String(degrees(cameraYaw));
+  cameraPitchControl.value = String(degrees(cameraPitch));
+  cameraZoomControl.value = String(cameraZoom);
+  cameraPanXControl.value = String(cameraPanX);
+  cameraPanYControl.value = String(cameraPanY);
   updateCameraLabels();
 }
 
@@ -204,7 +204,7 @@ function finishCameraDrag(event) {
 }
 
 function applyCameraControls() {
-  cameraYaw = normalizeYaw(radians(Number(cameraYawControl.value)));
+  cameraYaw = radians(Number(cameraYawControl.value));
   cameraPitch = clamp(
     radians(Number(cameraPitchControl.value)),
     MIN_CAMERA_PITCH,
@@ -213,7 +213,8 @@ function applyCameraControls() {
   cameraZoom = clamp(Number(cameraZoomControl.value), 0.5, 3);
   cameraPanX = clamp(Number(cameraPanXControl.value), -0.5, 0.5);
   cameraPanY = clamp(Number(cameraPanYControl.value), -0.5, 0.5);
-  syncCameraControls();
+  // Preserve exact degree/zoom/pan entry; only external camera changes resync fields.
+  updateCameraLabels();
   drawFrame();
 }
 
