@@ -22,9 +22,9 @@
           <p class="eyebrow">cloth-lab</p>
           <h1>Deterministic cloth simulation</h1>
           <p>
-            Experiment with a live cloth sheet, change its mesh and material, enable self-collision,
-            place movable pins, edit collision scenery, inspect the scene from different views, or
-            upload an OBJ/GLB garment mesh.
+            Experiment with built-in sheet, T-shirt, cape, skirt, dress, and poncho templates,
+            change their mesh and material, drape them over solver-owned mannequin collision geometry,
+            place movable pins, inspect the scene from different views, or upload an OBJ/GLB garment mesh.
           </p>
         </div>
         <a href="https://github.com/moritzbrantner/cloth-lab">Source on GitHub</a>
@@ -41,7 +41,7 @@
               <span>Upload garment</span>
               <input id="garment-upload" type="file" accept=".obj,.glb,model/gltf-binary" />
             </label>
-            <button id="use-demo" type="button" disabled>Sheet demo</button>
+            <button id="use-demo" type="button" disabled>Use template</button>
             <button id="play-toggle" type="button" disabled>Pause</button>
             <button id="single-step" type="button" disabled>Step</button>
             <button id="restart" type="button" disabled>Restart</button>
@@ -49,6 +49,23 @@
         </div>
 
         <div class="control-panel" aria-label="Simulation controls">
+          <label class="control" for="garment-template">
+            <span>Template</span>
+            <select id="garment-template">
+              <option
+                value="t-shirt"
+                data-summary="Short-sleeve front drape over the mannequin torso and arms."
+                selected
+              >
+                T-shirt
+              </option>
+            </select>
+          </label>
+
+          <p id="template-summary" class="template-summary">
+            Short-sleeve front drape over the mannequin torso and arms.
+          </p>
+
           <label class="control" for="material-preset">
             <span>Textile</span>
             <select id="material-preset">
@@ -60,9 +77,9 @@
           </label>
 
           <label class="control range-control" for="mesh-resolution">
-            <span>Sheet mesh</span>
+            <span>Template mesh</span>
             <input id="mesh-resolution" type="range" min="6" max="40" step="1" value="14" />
-            <output id="mesh-resolution-value" for="mesh-resolution">286 faces</output>
+            <output id="mesh-resolution-value" for="mesh-resolution">14 columns</output>
           </label>
 
           <label class="control range-control" for="gravity-control">
@@ -227,7 +244,7 @@
           width="1200"
           height="760"
           role="img"
-          aria-label="Three-dimensional rendering of a simulated cloth surface. Use the pointer tool control to drag cloth, edit pins, move the collision obstacle, or orbit the camera."
+          aria-label="Three-dimensional rendering of a simulated cloth garment and optional mannequin. Use the pointer tool control to drag cloth, edit pins, move the collision obstacle, or orbit the camera."
         ></canvas>
 
         <section class="inspector" aria-labelledby="inspector-title">
@@ -265,6 +282,10 @@
               <dt>Obstacle</dt>
               <dd id="inspect-obstacle">—</dd>
             </div>
+            <div>
+              <dt>Mannequin</dt>
+              <dd id="inspect-mannequin">—</dd>
+            </div>
           </dl>
         </section>
 
@@ -286,8 +307,10 @@
         controls and direct pointer dragging. Camera orbit, zoom, and pan remain renderer-only inspection
         state; cloth, pin, and obstacle dragging use the same current camera basis so view changes do not
         alter interaction meaning. The inspector reads authoritative topology, constraint, error, contact,
-        self-collision, obstacle, and normalized-asset evidence from Rust; wireframe and normal overlays
-        are rendering-only views of authoritative positions and triangles. Uploaded mesh formats still
+        self-collision, obstacle, mannequin-collider, and normalized-asset evidence from Rust; wireframe
+        and normal overlays are rendering-only views of authoritative positions and triangles. Built-in
+        garment templates are deterministic drape fixtures rather than inferred sewing patterns. The mannequin includes upper-body,
+        pelvis, and leg collision primitives so longer garments can exercise lower-body contact. Uploaded mesh formats still
         provide geometry only: seams, patterns, measured fabric properties, skins, and animation are not
         inferred when unsupported by the source.
       </p>

@@ -8,7 +8,7 @@ impl BrowserClothSession {
     #[wasm_bindgen(js_name = obstacleDescriptor)]
     #[must_use]
     pub fn obstacle_descriptor(&self) -> Vec<f64> {
-        let Some(collider) = self.colliders.first() else {
+        let Some(collider) = self.colliders.get(self.fixed_collider_count) else {
             return vec![0.0];
         };
 
@@ -74,7 +74,8 @@ impl BrowserClothSession {
             ClothCollider::Sphere(_) => None,
         });
 
-        self.colliders = colliders;
+        self.colliders.truncate(self.fixed_collider_count);
+        self.colliders.extend(colliders);
         self.capsule = capsule;
         self.last_report = None;
         Ok(())

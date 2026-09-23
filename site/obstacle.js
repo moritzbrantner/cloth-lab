@@ -214,6 +214,11 @@ function obstacleBoundsProjection(positions, capsule) {
     includeRadius(bounds, capsule.start, radius);
     includeRadius(bounds, capsule.end, radius);
   }
+  for (const collider of liveSceneColliders) {
+    const radius = collider.radius + collider.thickness;
+    includeRadius(bounds, collider.start, radius);
+    includeRadius(bounds, collider.end, radius);
+  }
   if (liveObstacle?.kind === "sphere") {
     includeRadius(
       bounds,
@@ -307,6 +312,7 @@ drawFrame = function () {
   if (liveSession && liveObstacle?.kind === "sphere" && projection) {
     resizeCanvas();
     context.clearRect(0, 0, canvas.width, canvas.height);
+    drawSceneColliders();
     drawSphereObstacle(liveObstacle);
     drawSurface(
       livePositions,
