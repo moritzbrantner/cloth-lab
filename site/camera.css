@@ -1,7 +1,5 @@
 .camera-panel {
-  padding: 13px 20px 16px;
-  border-bottom: 1px solid #28313d;
-  background: rgba(8, 13, 18, 0.52);
+  background: rgba(8, 13, 18, 0.46);
 }
 
 .camera-heading {
@@ -28,6 +26,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px 18px;
+  padding: 0 20px 16px;
 }
 
 canvas.interactive.camera-tool {
@@ -55,5 +54,7 @@ canvas.interactive.camera-tool {
   .camera-grid {
     grid-template-columns: 1fr;
     gap: 14px;
+    padding-right: 14px;
+    padding-left: 14px;
   }
 }
