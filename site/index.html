@@ -48,7 +48,24 @@
           </div>
         </div>
 
-        <div class="control-panel" aria-label="Simulation controls">
+        <details class="settings-disclosure" open>
+          <summary class="settings-toggle">
+            <span class="settings-toggle-copy">
+              <strong>Settings</strong>
+              <span id="settings-summary-detail">T-shirt · Cotton-like</span>
+            </span>
+            <span class="settings-toggle-state" aria-hidden="true"></span>
+          </summary>
+
+          <div class="settings-content">
+            <section class="settings-primary" aria-labelledby="simulation-settings-title">
+              <div class="settings-section-heading">
+                <div>
+                  <h3 id="simulation-settings-title">Garment & simulation</h3>
+                  <p>Choose the fixture, textile, solver behavior, and interaction tools.</p>
+                </div>
+              </div>
+              <div class="control-panel" aria-label="Simulation controls">
           <label class="control" for="garment-template">
             <span>Template</span>
             <select id="garment-template">
@@ -143,14 +160,17 @@
             </select>
           </label>
 
-          <button id="clear-pins" class="control-action" type="button" disabled>Clear pins</button>
-        </div>
+                <button id="clear-pins" class="control-action" type="button" disabled>Clear pins</button>
+              </div>
+            </section>
 
-        <section class="obstacle-panel" aria-labelledby="obstacle-title">
-          <div class="obstacle-heading">
-            <h3 id="obstacle-title">Collision obstacle</h3>
-            <p>Use the sliders for exact placement or choose “Move obstacle” and drag it directly.</p>
-          </div>
+            <details class="settings-subgroup obstacle-panel">
+              <summary class="settings-subgroup-summary">
+                <span>
+                  <strong id="obstacle-title">Collision obstacle</strong>
+                  <span>Position and size an optional extra collider.</span>
+                </span>
+              </summary>
           <div class="obstacle-grid">
             <label class="control" for="obstacle-kind">
               <span>Shape</span>
@@ -196,14 +216,16 @@
               <input id="obstacle-length" type="range" min="0.1" max="2" step="0.02" value="1.04" />
               <output id="obstacle-length-value" for="obstacle-length">1.04</output>
             </label>
-          </div>
-        </section>
+              </div>
+            </details>
 
-        <section class="camera-panel" aria-labelledby="camera-title">
-          <div class="camera-heading">
-            <h3 id="camera-title">Camera</h3>
-            <p>Orbit directly with the camera pointer tool, or use these controls for exact inspection.</p>
-          </div>
+            <details class="settings-subgroup camera-panel">
+              <summary class="settings-subgroup-summary">
+                <span>
+                  <strong id="camera-title">Camera</strong>
+                  <span>Orbit directly, or expand for exact inspection controls.</span>
+                </span>
+              </summary>
           <div class="camera-grid">
             <label class="control range-control" for="camera-yaw">
               <span>Yaw</span>
@@ -236,8 +258,10 @@
             </label>
 
             <button id="reset-camera" class="control-action" type="button">Reset camera</button>
+              </div>
+            </details>
           </div>
-        </section>
+        </details>
 
         <canvas
           id="cloth-canvas"
