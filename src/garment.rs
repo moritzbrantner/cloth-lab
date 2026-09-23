@@ -277,10 +277,7 @@ fn parse_face_index(
     Ok(resolved)
 }
 
-pub(crate) fn simulation_geometry_fingerprint(
-    positions: &[Vec3],
-    triangles: &[[usize; 3]],
-) -> u64 {
+pub(crate) fn simulation_geometry_fingerprint(positions: &[Vec3], triangles: &[[usize; 3]]) -> u64 {
     let mut hash = FNV_OFFSET_BASIS;
     hash_u64(&mut hash, positions.len() as u64);
     for position in positions {
