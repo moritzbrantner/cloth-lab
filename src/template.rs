@@ -11,14 +11,16 @@ const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 /// Deterministic built-in garments used to exercise cloth behavior without importing an asset.
 ///
 /// These are intentionally simulation fixtures rather than apparel pattern definitions. In
-/// particular, the T-shirt, cape, and skirt are single connected drape surfaces; they do not
-/// invent sewing relationships before Cloth Lab has an explicit seam model.
+/// particular, the T-shirt, cape, skirt, dress, and poncho are single connected drape surfaces;
+/// they do not invent sewing relationships before Cloth Lab has an explicit seam model.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GarmentTemplate {
     Sheet,
     TShirt,
     Cape,
     Skirt,
+    Dress,
+    Poncho,
 }
 
 impl GarmentTemplate {
@@ -29,6 +31,8 @@ impl GarmentTemplate {
             Self::TShirt => "t-shirt",
             Self::Cape => "cape",
             Self::Skirt => "skirt",
+            Self::Dress => "dress",
+            Self::Poncho => "poncho",
         }
     }
 
@@ -39,6 +43,8 @@ impl GarmentTemplate {
             Self::TShirt => "template-t-shirt",
             Self::Cape => "template-cape",
             Self::Skirt => "template-skirt",
+            Self::Dress => "template-dress",
+            Self::Poncho => "template-poncho",
         }
     }
 
@@ -49,6 +55,8 @@ impl GarmentTemplate {
             "t-shirt" => Some(Self::TShirt),
             "cape" => Some(Self::Cape),
             "skirt" => Some(Self::Skirt),
+            "dress" => Some(Self::Dress),
+            "poncho" => Some(Self::Poncho),
             _ => None,
         }
     }
@@ -64,6 +72,8 @@ impl GarmentTemplate {
             Self::TShirt => build_t_shirt(columns),
             Self::Cape => build_cape(columns),
             Self::Skirt => build_skirt(columns),
+            Self::Dress => build_dress(columns),
+            Self::Poncho => build_poncho(columns),
         })
     }
 }
@@ -248,7 +258,7 @@ fn build_skirt(columns: usize) -> GarmentTemplateAsset {
         rows,
         0.22,
         -1.18,
-        0.32,
+        0.12,
         |row_fraction| 0.56 + 0.4 * row_fraction,
         |_| 0.0,
     );
@@ -259,6 +269,80 @@ fn build_skirt(columns: usize) -> GarmentTemplateAsset {
 
     GarmentTemplateAsset {
         template: GarmentTemplate::Skirt,
+        positions,
+        triangles,
+        pinned_indices,
+        scene_colliders: mannequin_colliders(),
+        editable_obstacle: None,
+    }
+}
+
+fn build_dress(columns: usize) -> GarmentTemplateAsset {
+    let rows = ((columns - 1) * 7 + 3) / 5 + 1;
+    let (positions, triangles) = variable_width_panel(
+        columns,
+        rows,
+        1.34,
+        -1.32,
+        0.16,
+        |row_fraction| {
+            if row_fraction <= 0.18 {
+                1.04
+            } else if row_fraction <= 0.5 {
+                0.66
+            } else {
+                0.66 + 0.5 * ((row_fraction - 0.5) / 0.5)
+            }
+        },
+        |x| {
+            let neck_half_width = 0.3;
+            if x.abs() >= neck_half_width {
+                0.0
+            } else {
+                0.2 * (1.0 - x.abs() / neck_half_width)
+            }
+        },
+    );
+    let pinned_indices = vec![
+        nearest_top_vertex(&positions, columns, -0.5),
+        nearest_top_vertex(&positions, columns, 0.5),
+    ];
+
+    GarmentTemplateAsset {
+        template: GarmentTemplate::Dress,
+        positions,
+        triangles,
+        pinned_indices,
+        scene_colliders: mannequin_colliders(),
+        editable_obstacle: None,
+    }
+}
+
+fn build_poncho(columns: usize) -> GarmentTemplateAsset {
+    let rows = ((columns - 1) * 6 + 2) / 5 + 1;
+    let (positions, triangles) = variable_width_panel(
+        columns,
+        rows,
+        1.28,
+        -0.92,
+        -0.12,
+        |row_fraction| 0.72 + 0.6 * row_fraction,
+        |x| {
+            let neck_half_width = 0.28;
+            if x.abs() >= neck_half_width {
+                0.0
+            } else {
+                0.16 * (1.0 - x.abs() / neck_half_width)
+            }
+        },
+    );
+    let pinned_indices = vec![
+        nearest_top_vertex(&positions, columns, -0.44),
+        nearest_top_vertex(&positions, columns, 0.44),
+    ];
+
+    GarmentTemplateAsset {
+        template: GarmentTemplate::Poncho,
         positions,
         triangles,
         pinned_indices,
@@ -354,6 +438,24 @@ fn mannequin_colliders() -> Vec<ClothCollider> {
             radius: 0.16,
             thickness: COLLISION_THICKNESS,
         }),
+        ClothCollider::Capsule(CapsuleCollider {
+            start: Vec3::new(-0.38, -0.2, 0.0),
+            end: Vec3::new(0.38, -0.2, 0.0),
+            radius: 0.24,
+            thickness: COLLISION_THICKNESS,
+        }),
+        ClothCollider::Capsule(CapsuleCollider {
+            start: Vec3::new(-0.2, -1.42, 0.0),
+            end: Vec3::new(-0.2, -0.38, 0.0),
+            radius: 0.16,
+            thickness: COLLISION_THICKNESS,
+        }),
+        ClothCollider::Capsule(CapsuleCollider {
+            start: Vec3::new(0.2, -1.42, 0.0),
+            end: Vec3::new(0.2, -0.38, 0.0),
+            radius: 0.16,
+            thickness: COLLISION_THICKNESS,
+        }),
     ]
 }
 
@@ -376,6 +478,8 @@ mod tests {
             GarmentTemplate::TShirt,
             GarmentTemplate::Cape,
             GarmentTemplate::Skirt,
+            GarmentTemplate::Dress,
+            GarmentTemplate::Poncho,
         ] {
             let asset = template.build(14).expect("template must build");
             assert!(!asset.positions().is_empty());
@@ -415,7 +519,7 @@ mod tests {
             center.y < shoulder.y,
             "neckline should dip below the shoulder edge"
         );
-        assert_eq!(asset.scene_colliders().len(), 5);
+        assert_eq!(asset.scene_colliders().len(), 8);
         assert_eq!(asset.pinned_indices().len(), 2);
     }
 
@@ -447,18 +551,26 @@ mod tests {
     }
 
     #[test]
-    fn t_shirt_drapes_against_mannequin_deterministically() {
-        let first = mannequin_contact_evidence(GarmentTemplate::TShirt);
-        let second = mannequin_contact_evidence(GarmentTemplate::TShirt);
+    fn mannequin_templates_contact_and_replay_deterministically() {
+        for template in [
+            GarmentTemplate::TShirt,
+            GarmentTemplate::Cape,
+            GarmentTemplate::Skirt,
+            GarmentTemplate::Dress,
+            GarmentTemplate::Poncho,
+        ] {
+            let first = mannequin_contact_evidence(template);
+            let second = mannequin_contact_evidence(template);
 
-        assert!(
-            first.0 > 0,
-            "T-shirt fixture must actually contact the mannequin"
-        );
-        assert_eq!(
-            first, second,
-            "mannequin drape replay must be deterministic"
-        );
+            assert!(
+                first.0 > 0,
+                "{template:?} fixture must actually contact the mannequin"
+            );
+            assert_eq!(
+                first, second,
+                "{template:?} mannequin drape replay must be deterministic"
+            );
+        }
     }
 
     #[test]
