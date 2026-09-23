@@ -597,6 +597,24 @@ mod tests {
     }
 
     #[test]
+    fn template_catalog_metadata_round_trips() {
+        let mut keys = GarmentTemplate::ALL
+            .into_iter()
+            .map(GarmentTemplate::key)
+            .collect::<Vec<_>>();
+        let advertised_count = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+
+        assert_eq!(keys.len(), advertised_count, "template keys must be unique");
+        for template in GarmentTemplate::ALL {
+            assert_eq!(GarmentTemplate::from_key(template.key()), Some(template));
+            assert!(!template.display_name().is_empty());
+            assert!(!template.summary().is_empty());
+        }
+    }
+
+    #[test]
     fn unknown_template_keys_are_rejected() {
         assert_eq!(GarmentTemplate::from_key("hoodie"), None);
     }
