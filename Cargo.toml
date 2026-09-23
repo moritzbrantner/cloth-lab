@@ -13,7 +13,7 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
-spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "980091094a9826167a98b96781126595fbea5076" }
+spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "3aaef5bb036c4568aea3091945e90266981fd9ca" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.128"
