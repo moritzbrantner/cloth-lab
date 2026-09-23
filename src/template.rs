@@ -1,12 +1,13 @@
 use core::fmt;
 
-use crate::{CapsuleCollider, ClothCollider, SphereCollider, Vec3};
+use crate::{
+    CapsuleCollider, ClothCollider, SphereCollider, Vec3,
+    garment::simulation_geometry_fingerprint,
+};
 
 const MIN_TEMPLATE_RESOLUTION: u32 = 6;
 const MAX_TEMPLATE_RESOLUTION: u32 = 40;
 const COLLISION_THICKNESS: f64 = 0.025;
-const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 /// Deterministic built-in garments used to exercise cloth behavior without importing an asset.
 ///
@@ -162,20 +163,7 @@ impl GarmentTemplateAsset {
     /// Stable identity for the generated simulation geometry.
     #[must_use]
     pub fn simulation_fingerprint(&self) -> u64 {
-        let mut hash = FNV_OFFSET_BASIS;
-        hash_u64(&mut hash, self.positions.len() as u64);
-        for position in &self.positions {
-            hash_u64(&mut hash, position.x.to_bits());
-            hash_u64(&mut hash, position.y.to_bits());
-            hash_u64(&mut hash, position.z.to_bits());
-        }
-        hash_u64(&mut hash, self.triangles.len() as u64);
-        for triangle in &self.triangles {
-            for &index in triangle {
-                hash_u64(&mut hash, index as u64);
-            }
-        }
-        hash
+        simulation_geometry_fingerprint(&self.positions, &self.triangles)
     }
 }
 
@@ -497,13 +485,6 @@ fn mannequin_colliders() -> Vec<ClothCollider> {
             thickness: COLLISION_THICKNESS,
         }),
     ]
-}
-
-fn hash_u64(hash: &mut u64, value: u64) {
-    for byte in value.to_le_bytes() {
-        *hash ^= u64::from(byte);
-        *hash = hash.wrapping_mul(FNV_PRIME);
-    }
 }
 
 #[cfg(test)]
