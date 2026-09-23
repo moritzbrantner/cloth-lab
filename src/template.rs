@@ -1,8 +1,7 @@
 use core::fmt;
 
 use crate::{
-    CapsuleCollider, ClothCollider, SphereCollider, Vec3,
-    garment::simulation_geometry_fingerprint,
+    CapsuleCollider, ClothCollider, SphereCollider, Vec3, garment::simulation_geometry_fingerprint,
 };
 
 const MIN_TEMPLATE_RESOLUTION: u32 = 6;
