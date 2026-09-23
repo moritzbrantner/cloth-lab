@@ -4,24 +4,14 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     CapsuleCollider, ClothCollider, ContactConfig, FixedStepConfig, GarmentAsset, GarmentImporter,
-    GarmentSourceFormat, GlbGarmentImporter, ObjGarmentImporter, ParticleDrag, SelfCollisionConfig,
-    SelfCollisionReport, StepReport, TextilePreset, TriangleMeshCloth, Vec3,
+    GarmentSourceFormat, GarmentTemplate, GarmentTemplateAsset, GlbGarmentImporter,
+    ObjGarmentImporter, ParticleDrag, SelfCollisionConfig, SelfCollisionReport, StepReport,
+    TextilePreset, TriangleMeshCloth, Vec3,
 };
 
 mod obstacle;
 
-const DEMO_MIN_RESOLUTION: u32 = 6;
-const DEMO_MAX_RESOLUTION: u32 = 40;
-const DEMO_WIDTH: f64 = 2.08;
-const DEMO_ROWS_NUMERATOR: usize = 11;
-const DEMO_ROWS_DENOMINATOR: usize = 13;
 const MAX_BROWSER_SOLVER_ITERATIONS: u32 = 64;
-const DEMO_CAPSULE: CapsuleCollider = CapsuleCollider {
-    start: Vec3::new(0.52, -0.58, 0.88),
-    end: Vec3::new(1.56, -0.58, 0.88),
-    radius: 0.28,
-    thickness: 0.025,
-};
 
 #[derive(Clone, Copy, Debug)]
 struct BrowserPin {
@@ -37,6 +27,7 @@ pub struct BrowserClothSession {
     pins: BTreeMap<usize, BrowserPin>,
     step_config: FixedStepConfig,
     colliders: Vec<ClothCollider>,
+    fixed_collider_count: usize,
     contact_config: ContactConfig,
     capsule: Option<CapsuleCollider>,
     source_kind: &'static str,
@@ -62,62 +53,19 @@ impl BrowserClothSession {
 
     #[wasm_bindgen(js_name = fromDemo)]
     pub fn from_demo(resolution: u32, preset: &str) -> Result<BrowserClothSession, JsValue> {
-        if !(DEMO_MIN_RESOLUTION..=DEMO_MAX_RESOLUTION).contains(&resolution) {
-            return Err(JsValue::from_str(
-                "demo mesh resolution must be between 6 and 40",
-            ));
-        }
+        Self::from_template("sheet", resolution, preset)
+    }
 
-        let preset = parse_preset(preset)?;
-        let columns = usize::try_from(resolution)
-            .map_err(|_| JsValue::from_str("demo mesh resolution exceeds usize"))?;
-        let rows = demo_rows(columns);
-        let spacing = DEMO_WIDTH / (columns - 1) as f64;
-        let mut positions = Vec::with_capacity(columns * rows);
-        for row in 0..rows {
-            for column in 0..columns {
-                positions.push(Vec3::new(
-                    column as f64 * spacing,
-                    0.0,
-                    row as f64 * spacing,
-                ));
-            }
-        }
-
-        let mut triangles = Vec::with_capacity((columns - 1) * (rows - 1) * 2);
-        for row in 0..rows - 1 {
-            for column in 0..columns - 1 {
-                let top_left = row * columns + column;
-                let top_right = top_left + 1;
-                let bottom_left = (row + 1) * columns + column;
-                let bottom_right = bottom_left + 1;
-                triangles.push([top_left, bottom_left, top_right]);
-                triangles.push([top_right, bottom_left, bottom_right]);
-            }
-        }
-
-        let parameters = preset.parameters();
-        let cloth =
-            TriangleMeshCloth::new(&positions, &triangles, parameters.triangle_mesh_config(1.0))
-                .map_err(js_error)?;
-        let mut session = BrowserClothSession {
-            initial: cloth.clone(),
-            cloth,
-            drag: None,
-            pins: BTreeMap::new(),
-            step_config: FixedStepConfig::default(),
-            colliders: vec![ClothCollider::Capsule(DEMO_CAPSULE)],
-            contact_config: parameters.contact_config(),
-            capsule: Some(DEMO_CAPSULE),
-            source_kind: "generated-sheet",
-            normalized_asset_fingerprint: None,
-            self_collision_config: None,
-            last_report: None,
-            last_self_collision_report: SelfCollisionReport::default(),
-        };
-        session.pin_particle_at(0, positions[0])?;
-        session.pin_particle_at(columns - 1, positions[columns - 1])?;
-        Ok(session)
+    #[wasm_bindgen(js_name = fromTemplate)]
+    pub fn from_template(
+        template: &str,
+        resolution: u32,
+        preset: &str,
+    ) -> Result<BrowserClothSession, JsValue> {
+        let template = GarmentTemplate::from_key(template)
+            .ok_or_else(|| JsValue::from_str("unknown garment template"))?;
+        let asset = template.build(resolution).map_err(js_error)?;
+        build_template_session(asset, preset)
     }
 
     #[wasm_bindgen(js_name = vertexCount)]
@@ -226,6 +174,39 @@ impl BrowserClothSession {
                 capsule.thickness,
             ]
         })
+    }
+
+    #[wasm_bindgen(js_name = sceneColliders)]
+    #[must_use]
+    pub fn scene_colliders(&self) -> Vec<f64> {
+        let mut descriptors = Vec::with_capacity(self.fixed_collider_count * 9);
+        for collider in &self.colliders[..self.fixed_collider_count] {
+            match collider {
+                ClothCollider::Sphere(sphere) => descriptors.extend_from_slice(&[
+                    1.0,
+                    sphere.center.x,
+                    sphere.center.y,
+                    sphere.center.z,
+                    sphere.center.x,
+                    sphere.center.y,
+                    sphere.center.z,
+                    sphere.radius,
+                    sphere.thickness,
+                ]),
+                ClothCollider::Capsule(capsule) => descriptors.extend_from_slice(&[
+                    2.0,
+                    capsule.start.x,
+                    capsule.start.y,
+                    capsule.start.z,
+                    capsule.end.x,
+                    capsule.end.y,
+                    capsule.end.z,
+                    capsule.radius,
+                    capsule.thickness,
+                ]),
+            }
+        }
+        descriptors
     }
 
     #[wasm_bindgen(js_name = sourceKind)]
@@ -484,6 +465,59 @@ impl BrowserClothSession {
     }
 }
 
+fn build_template_session(
+    asset: GarmentTemplateAsset,
+    preset: &str,
+) -> Result<BrowserClothSession, JsValue> {
+    let preset = parse_preset(preset)?;
+    let parameters = preset.parameters();
+    let positions = asset.positions().to_vec();
+    let triangles = asset.triangles().to_vec();
+    let pinned_indices = asset.pinned_indices().to_vec();
+    let source_kind = asset.template().source_kind();
+    let normalized_asset_fingerprint = asset.simulation_fingerprint();
+    let fixed_collider_count = asset.scene_colliders().len();
+    let editable_obstacle = asset.editable_obstacle();
+    let mut colliders = asset.scene_colliders().to_vec();
+    if let Some(collider) = editable_obstacle {
+        colliders.push(collider);
+    }
+    let capsule = editable_obstacle.and_then(|collider| match collider {
+        ClothCollider::Capsule(capsule) => Some(capsule),
+        ClothCollider::Sphere(_) => None,
+    });
+    let cloth = TriangleMeshCloth::new(
+        &positions,
+        &triangles,
+        parameters.triangle_mesh_config(1.0),
+    )
+    .map_err(js_error)?;
+    let mut session = BrowserClothSession {
+        initial: cloth.clone(),
+        cloth,
+        drag: None,
+        pins: BTreeMap::new(),
+        step_config: FixedStepConfig::default(),
+        colliders,
+        fixed_collider_count,
+        contact_config: parameters.contact_config(),
+        capsule,
+        source_kind,
+        normalized_asset_fingerprint: Some(normalized_asset_fingerprint),
+        self_collision_config: None,
+        last_report: None,
+        last_self_collision_report: SelfCollisionReport::default(),
+    };
+    for index in pinned_indices {
+        let target = positions
+            .get(index)
+            .copied()
+            .ok_or_else(|| JsValue::from_str("template pin index is outside the cloth"))?;
+        session.pin_particle_at(index, target)?;
+    }
+    Ok(session)
+}
+
 fn build_session(asset: GarmentAsset, preset: &str) -> Result<BrowserClothSession, JsValue> {
     let preset = parse_preset(preset)?;
     let parameters = preset.parameters();
@@ -505,6 +539,7 @@ fn build_session(asset: GarmentAsset, preset: &str) -> Result<BrowserClothSessio
         pins: BTreeMap::new(),
         step_config: FixedStepConfig::default(),
         colliders: Vec::new(),
+        fixed_collider_count: 0,
         contact_config: parameters.contact_config(),
         capsule: None,
         source_kind,
@@ -513,10 +548,6 @@ fn build_session(asset: GarmentAsset, preset: &str) -> Result<BrowserClothSessio
         last_report: None,
         last_self_collision_report: SelfCollisionReport::default(),
     })
-}
-
-fn demo_rows(columns: usize) -> usize {
-    ((columns - 1) * DEMO_ROWS_NUMERATOR + DEMO_ROWS_DENOMINATOR / 2) / DEMO_ROWS_DENOMINATOR + 1
 }
 
 fn parse_preset(value: &str) -> Result<TextilePreset, JsValue> {
