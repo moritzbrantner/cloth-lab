@@ -11,6 +11,7 @@ const slider = document.querySelector("#frame-slider");
 const timeline = document.querySelector(".timeline");
 const status = document.querySelector("#status");
 const garmentUpload = document.querySelector("#garment-upload");
+const garmentTemplate = document.querySelector("#garment-template");
 const materialPreset = document.querySelector("#material-preset");
 const meshResolution = document.querySelector("#mesh-resolution");
 const meshResolutionValue = document.querySelector("#mesh-resolution-value");
@@ -51,6 +52,7 @@ let liveStretchEdges = [];
 let liveBendingEdges = [];
 let livePinned = [];
 let liveCapsule = null;
+let liveSceneColliders = [];
 let liveStepCount = 0;
 let liveFingerprint = "";
 let liveSourceLabel = "Sheet demo";
@@ -90,6 +92,11 @@ function computeProjectionFromPositions(positions, capsule = null) {
     const radius = capsule.radius + capsule.thickness;
     includeRadius(bounds, capsule.start, radius);
     includeRadius(bounds, capsule.end, radius);
+  }
+  for (const collider of liveSceneColliders) {
+    const radius = collider.radius + collider.thickness;
+    includeRadius(bounds, collider.start, radius);
+    includeRadius(bounds, collider.end, radius);
   }
 
   const center = [
@@ -191,6 +198,43 @@ function drawCapsule(capsule) {
   context.lineWidth = Math.max(1, canvas.width / 1400);
   context.stroke();
   context.restore();
+}
+
+function drawSceneColliders() {
+  for (const collider of liveSceneColliders) {
+    const midpoint = collider.start.map(
+      (value, index) => (value + collider.end[index]) / 2,
+    );
+    const physicalRadius = projectedRadius(midpoint, collider.radius);
+    context.save();
+    if (collider.kind === "sphere") {
+      const center = project(collider.start);
+      context.beginPath();
+      context.arc(center.x, center.y, physicalRadius, 0, Math.PI * 2);
+      context.fillStyle = "rgba(82, 96, 112, 0.72)";
+      context.fill();
+      context.strokeStyle = "rgba(190, 203, 216, 0.24)";
+      context.lineWidth = Math.max(1, canvas.width / 1500);
+      context.stroke();
+    } else {
+      const start = project(collider.start);
+      const end = project(collider.end);
+      context.lineCap = "round";
+      context.beginPath();
+      context.moveTo(start.x, start.y);
+      context.lineTo(end.x, end.y);
+      context.strokeStyle = "rgba(82, 96, 112, 0.72)";
+      context.lineWidth = physicalRadius * 2;
+      context.stroke();
+      context.beginPath();
+      context.moveTo(start.x, start.y);
+      context.lineTo(end.x, end.y);
+      context.strokeStyle = "rgba(190, 203, 216, 0.24)";
+      context.lineWidth = Math.max(1, canvas.width / 1500);
+      context.stroke();
+    }
+    context.restore();
+  }
 }
 
 function pinMarkerRadius() {
@@ -363,6 +407,7 @@ function drawFrame() {
   context.clearRect(0, 0, canvas.width, canvas.height);
 
   if (liveSession) {
+    drawSceneColliders();
     if (liveCapsule) {
       drawCapsule(liveCapsule);
     }
@@ -507,6 +552,30 @@ function capsuleFromFlat(values) {
   };
 }
 
+function sceneCollidersFromFlat(values) {
+  const flat = Array.from(values);
+  if (flat.length % 9 !== 0 || !flat.every(Number.isFinite)) {
+    throw new Error("Rust solver returned invalid mannequin collider data");
+  }
+  const colliders = [];
+  for (let offset = 0; offset < flat.length; offset += 9) {
+    const kind = flat[offset] === 1 ? "sphere" : flat[offset] === 2 ? "capsule" : null;
+    const radius = flat[offset + 7];
+    const thickness = flat[offset + 8];
+    if (!kind || radius <= 0 || thickness < 0) {
+      throw new Error("Rust solver returned invalid mannequin collider descriptor");
+    }
+    colliders.push({
+      kind,
+      start: flat.slice(offset + 1, offset + 4),
+      end: flat.slice(offset + 4, offset + 7),
+      radius,
+      thickness,
+    });
+  }
+  return colliders;
+}
+
 function refreshLivePins() {
   livePinned = Array.from(liveSession.pinnedIndices());
   clearPinsButton.disabled = livePinned.length === 0;
@@ -535,6 +604,7 @@ function refreshLiveTopology() {
     "bending constraint",
   );
   liveCapsule = capsuleFromFlat(liveSession.capsuleCollider());
+  liveSceneColliders = sceneCollidersFromFlat(liveSession.sceneColliders());
   refreshLivePins();
   liveFingerprint = liveSession.fingerprint();
   updateLiveStatus();
@@ -547,7 +617,14 @@ function selectedMaterialLabel() {
 function sourceKindLabel(sourceKind) {
   switch (sourceKind) {
     case "generated-sheet":
+    case "template-sheet":
       return "Generated sheet";
+    case "template-t-shirt":
+      return "T-shirt template";
+    case "template-cape":
+      return "Cape template";
+    case "template-skirt":
+      return "Skirt template";
     case "obj":
       return "OBJ upload";
     case "glb":
@@ -665,15 +742,18 @@ function activateSession(session, sourceLabel, upload, autoplay) {
 }
 
 async function activateDemo(pins = null, autoplay = true) {
-  status.textContent = "Building interactive sheet…";
+  const templateLabel =
+    garmentTemplate.options[garmentTemplate.selectedIndex]?.textContent ?? garmentTemplate.value;
+  status.textContent = `Building ${templateLabel} template…`;
   const module = await loadWasmModule();
-  const session = module.BrowserClothSession.fromDemo(
+  const session = module.BrowserClothSession.fromTemplate(
+    garmentTemplate.value,
     Number(meshResolution.value),
     materialPreset.value,
   );
   applyRuntimeControls(session);
   restorePins(session, pins);
-  activateSession(session, "Sheet demo", null, autoplay);
+  activateSession(session, templateLabel, null, autoplay);
 }
 
 async function activateUpload(upload, pins = null) {
@@ -887,7 +967,7 @@ function faceCountForResolution(resolution) {
 
 function updateControlLabels() {
   const resolution = Number(meshResolution.value);
-  meshResolutionValue.textContent = `${faceCountForResolution(resolution)} faces`;
+  meshResolutionValue.textContent = `${resolution} columns`;
   gravityValue.textContent = `${Number(gravityControl.value).toFixed(2)} m/s²`;
   solverIterationsValue.textContent = solverIterations.value;
   velocityDampingValue.textContent = Number(velocityDamping.value).toFixed(3);
@@ -1042,6 +1122,14 @@ useDemoButton.addEventListener("click", async () => {
     await activateDemo();
   } catch (error) {
     status.textContent = `Could not restore sheet demo: ${formatError(error)}`;
+  }
+});
+
+garmentTemplate.addEventListener("change", async () => {
+  try {
+    await activateDemo(null, playing);
+  } catch (error) {
+    status.textContent = `Could not load garment template: ${formatError(error)}`;
   }
 });
 
