@@ -50,20 +50,7 @@ impl GarmentAsset {
     /// through different adapters can converge on the same simulation identity.
     #[must_use]
     pub fn simulation_fingerprint(&self) -> u64 {
-        let mut hash = FNV_OFFSET_BASIS;
-        hash_u64(&mut hash, self.positions.len() as u64);
-        for position in &self.positions {
-            hash_u64(&mut hash, position.x.to_bits());
-            hash_u64(&mut hash, position.y.to_bits());
-            hash_u64(&mut hash, position.z.to_bits());
-        }
-        hash_u64(&mut hash, self.triangles.len() as u64);
-        for triangle in &self.triangles {
-            for &index in triangle {
-                hash_u64(&mut hash, index as u64);
-            }
-        }
-        hash
+        simulation_geometry_fingerprint(&self.positions, &self.triangles)
     }
 }
 
@@ -288,6 +275,26 @@ fn parse_face_index(
         return Err(GarmentImportError::FaceIndexOutOfBounds { line });
     }
     Ok(resolved)
+}
+
+pub(crate) fn simulation_geometry_fingerprint(
+    positions: &[Vec3],
+    triangles: &[[usize; 3]],
+) -> u64 {
+    let mut hash = FNV_OFFSET_BASIS;
+    hash_u64(&mut hash, positions.len() as u64);
+    for position in positions {
+        hash_u64(&mut hash, position.x.to_bits());
+        hash_u64(&mut hash, position.y.to_bits());
+        hash_u64(&mut hash, position.z.to_bits());
+    }
+    hash_u64(&mut hash, triangles.len() as u64);
+    for triangle in triangles {
+        for &index in triangle {
+            hash_u64(&mut hash, index as u64);
+        }
+    }
+    hash
 }
 
 fn hash_u64(hash: &mut u64, value: u64) {
