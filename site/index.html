@@ -22,9 +22,9 @@
           <p class="eyebrow">cloth-lab</p>
           <h1>Deterministic cloth simulation</h1>
           <p>
-            Experiment with built-in sheet, T-shirt, cape, and skirt templates, change their mesh
-            and material, drape them over solver-owned mannequin collision geometry, place movable
-            pins, inspect the scene from different views, or upload an OBJ/GLB garment mesh.
+            Experiment with built-in sheet, T-shirt, cape, skirt, dress, and poncho templates,
+            change their mesh and material, drape them over solver-owned mannequin collision geometry,
+            place movable pins, inspect the scene from different views, or upload an OBJ/GLB garment mesh.
           </p>
         </div>
         <a href="https://github.com/moritzbrantner/cloth-lab">Source on GitHub</a>
@@ -56,8 +56,14 @@
               <option value="t-shirt" selected>T-shirt</option>
               <option value="cape">Cape</option>
               <option value="skirt">Skirt</option>
+              <option value="dress">Dress</option>
+              <option value="poncho">Poncho</option>
             </select>
           </label>
+
+          <p id="template-summary" class="template-summary">
+            Short-sleeve front drape over the mannequin torso and arms.
+          </p>
 
           <label class="control" for="material-preset">
             <span>Textile</span>
@@ -275,6 +281,10 @@
               <dt>Obstacle</dt>
               <dd id="inspect-obstacle">—</dd>
             </div>
+            <div>
+              <dt>Mannequin</dt>
+              <dd id="inspect-mannequin">—</dd>
+            </div>
           </dl>
         </section>
 
@@ -298,7 +308,8 @@
         alter interaction meaning. The inspector reads authoritative topology, constraint, error, contact,
         self-collision, obstacle, mannequin-collider, and normalized-asset evidence from Rust; wireframe
         and normal overlays are rendering-only views of authoritative positions and triangles. Built-in
-        garment templates are deterministic drape fixtures rather than inferred sewing patterns. Uploaded mesh formats still
+        garment templates are deterministic drape fixtures rather than inferred sewing patterns. The mannequin includes upper-body,
+        pelvis, and leg collision primitives so longer garments can exercise lower-body contact. Uploaded mesh formats still
         provide geometry only: seams, patterns, measured fabric properties, skins, and animation are not
         inferred when unsupported by the source.
       </p>
