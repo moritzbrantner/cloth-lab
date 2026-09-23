@@ -13,6 +13,7 @@ const status = document.querySelector("#status");
 const garmentUpload = document.querySelector("#garment-upload");
 const garmentTemplate = document.querySelector("#garment-template");
 const templateSummary = document.querySelector("#template-summary");
+const settingsSummaryDetail = document.querySelector("#settings-summary-detail");
 const materialPreset = document.querySelector("#material-preset");
 const meshResolution = document.querySelector("#mesh-resolution");
 const meshResolutionValue = document.querySelector("#mesh-resolution-value");
@@ -616,6 +617,13 @@ function selectedMaterialLabel() {
   return materialPreset.options[materialPreset.selectedIndex]?.textContent ?? materialPreset.value;
 }
 
+function updateSettingsSummary(sourceLabel = null) {
+  const templateLabel =
+    garmentTemplate.options[garmentTemplate.selectedIndex]?.textContent ?? garmentTemplate.value;
+  const source = sourceLabel ?? currentUpload?.name ?? templateLabel;
+  settingsSummaryDetail.textContent = `${source} · ${selectedMaterialLabel()}`;
+}
+
 function updateTemplateSummary() {
   const option = garmentTemplate.options[garmentTemplate.selectedIndex];
   templateSummary.textContent =
@@ -651,6 +659,7 @@ function populateTemplateCatalog(module) {
     garmentTemplate.selectedIndex = 0;
   }
   updateTemplateSummary();
+  updateSettingsSummary();
 }
 
 function sourceKindLabel(sourceKind) {
@@ -770,6 +779,7 @@ function activateSession(session, sourceLabel, upload, autoplay) {
   liveSession = session;
   currentUpload = upload;
   liveSourceLabel = sourceLabel;
+  updateSettingsSummary(sourceLabel);
   liveStepCount = 0;
   liveFingerprint = "";
   dragState = null;
