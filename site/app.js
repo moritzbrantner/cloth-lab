@@ -40,15 +40,6 @@ const DEMO_ROWS_NUMERATOR = 11;
 const DEMO_ROWS_DENOMINATOR = 13;
 const MAX_NORMAL_MARKERS = 180;
 
-const TEMPLATE_SUMMARIES = Object.freeze({
-  sheet: "Free sheet fixture with an editable capsule obstacle and no mannequin.",
-  "t-shirt": "Short-sleeve front drape over the mannequin torso and arms.",
-  cape: "Back drape pinned at the shoulders against the mannequin upper body.",
-  skirt: "Waist-pinned flared drape using pelvis and leg collision geometry.",
-  dress: "Long torso-to-knee drape combining a fitted waist with a flared lower section.",
-  poncho: "Wide shoulder-pinned drape for broad folds across the upper body.",
-});
-
 let snapshots = null;
 let frameIndex = 0;
 let playing = true;
@@ -626,8 +617,40 @@ function selectedMaterialLabel() {
 }
 
 function updateTemplateSummary() {
+  const option = garmentTemplate.options[garmentTemplate.selectedIndex];
   templateSummary.textContent =
-    TEMPLATE_SUMMARIES[garmentTemplate.value] ?? "Deterministic generated cloth fixture.";
+    option?.dataset.summary ?? "Deterministic generated cloth fixture.";
+}
+
+function populateTemplateCatalog(module) {
+  const catalog = Array.from(module.garmentTemplateCatalog());
+  if (catalog.length === 0 || catalog.length % 3 !== 0) {
+    throw new Error("Rust solver returned an invalid garment template catalog");
+  }
+
+  const selectedKey = garmentTemplate.value || "t-shirt";
+  const options = [];
+  for (let offset = 0; offset < catalog.length; offset += 3) {
+    const [key, label, summary] = catalog.slice(offset, offset + 3);
+    if (!key || !label || !summary) {
+      throw new Error("Rust solver returned incomplete garment template metadata");
+    }
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = label;
+    option.dataset.summary = summary;
+    options.push(option);
+  }
+
+  garmentTemplate.replaceChildren(...options);
+  garmentTemplate.value = selectedKey;
+  if (garmentTemplate.selectedIndex < 0) {
+    garmentTemplate.value = "t-shirt";
+  }
+  if (garmentTemplate.selectedIndex < 0) {
+    garmentTemplate.selectedIndex = 0;
+  }
+  updateTemplateSummary();
 }
 
 function sourceKindLabel(sourceKind) {
@@ -698,6 +721,7 @@ async function loadWasmModule() {
   if (!wasmModulePromise) {
     wasmModulePromise = import("./pkg/cloth_lab.js").then(async (module) => {
       await module.default();
+      populateTemplateCatalog(module);
       return module;
     });
   }
