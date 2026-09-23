@@ -455,7 +455,10 @@ mod tests {
             first.0 > 0,
             "T-shirt fixture must actually contact the mannequin"
         );
-        assert_eq!(first, second, "mannequin drape replay must be deterministic");
+        assert_eq!(
+            first, second,
+            "mannequin drape replay must be deterministic"
+        );
     }
 
     #[test]
