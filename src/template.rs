@@ -24,6 +24,46 @@ pub enum GarmentTemplate {
 }
 
 impl GarmentTemplate {
+    pub const ALL: [Self; 6] = [
+        Self::Sheet,
+        Self::TShirt,
+        Self::Cape,
+        Self::Skirt,
+        Self::Dress,
+        Self::Poncho,
+    ];
+
+    #[must_use]
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Sheet => "Sheet",
+            Self::TShirt => "T-shirt",
+            Self::Cape => "Cape",
+            Self::Skirt => "Skirt",
+            Self::Dress => "Dress",
+            Self::Poncho => "Poncho",
+        }
+    }
+
+    #[must_use]
+    pub const fn summary(self) -> &'static str {
+        match self {
+            Self::Sheet => "Free sheet fixture with an editable capsule obstacle and no mannequin.",
+            Self::TShirt => "Short-sleeve front drape over the mannequin torso and arms.",
+            Self::Cape => "Back drape pinned at the shoulders against the mannequin upper body.",
+            Self::Skirt => "Waist-pinned flared drape using pelvis and leg collision geometry.",
+            Self::Dress => {
+                "Long torso-to-knee drape combining a fitted waist with a flared lower section."
+            }
+            Self::Poncho => "Wide shoulder-pinned drape for broad folds across the upper body.",
+        }
+    }
+
+    #[must_use]
+    pub const fn uses_mannequin(self) -> bool {
+        !matches!(self, Self::Sheet)
+    }
+
     #[must_use]
     pub const fn key(self) -> &'static str {
         match self {
@@ -473,14 +513,7 @@ mod tests {
 
     #[test]
     fn all_templates_build_as_valid_triangle_meshes() {
-        for template in [
-            GarmentTemplate::Sheet,
-            GarmentTemplate::TShirt,
-            GarmentTemplate::Cape,
-            GarmentTemplate::Skirt,
-            GarmentTemplate::Dress,
-            GarmentTemplate::Poncho,
-        ] {
+        for template in GarmentTemplate::ALL {
             let asset = template.build(14).expect("template must build");
             assert!(!asset.positions().is_empty());
             assert!(!asset.triangles().is_empty());
@@ -552,13 +585,10 @@ mod tests {
 
     #[test]
     fn mannequin_templates_contact_and_replay_deterministically() {
-        for template in [
-            GarmentTemplate::TShirt,
-            GarmentTemplate::Cape,
-            GarmentTemplate::Skirt,
-            GarmentTemplate::Dress,
-            GarmentTemplate::Poncho,
-        ] {
+        for template in GarmentTemplate::ALL
+            .into_iter()
+            .filter(|template| template.uses_mannequin())
+        {
             let first = mannequin_contact_evidence(template);
             let second = mannequin_contact_evidence(template);
 
