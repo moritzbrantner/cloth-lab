@@ -187,7 +187,7 @@ fn build_t_shirt(columns: usize) -> GarmentTemplateAsset {
         rows,
         1.32,
         -0.72,
-        0.52,
+        0.18,
         |row_fraction| {
             if row_fraction <= 0.28 { 1.18 } else { 0.68 }
         },
@@ -222,7 +222,7 @@ fn build_cape(columns: usize) -> GarmentTemplateAsset {
         rows,
         1.22,
         -1.12,
-        -0.5,
+        -0.18,
         |row_fraction| 0.64 + 0.36 * row_fraction,
         |_| 0.0,
     );
@@ -248,7 +248,7 @@ fn build_skirt(columns: usize) -> GarmentTemplateAsset {
         rows,
         0.22,
         -1.18,
-        0.46,
+        0.32,
         |row_fraction| 0.56 + 0.4 * row_fraction,
         |_| 0.0,
     );
@@ -367,7 +367,7 @@ fn hash_u64(hash: &mut u64, value: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TextilePreset, TriangleMeshCloth};
+    use crate::{FixedStepConfig, TextilePreset, TriangleMeshCloth};
 
     #[test]
     fn all_templates_build_as_valid_triangle_meshes() {
@@ -417,6 +417,45 @@ mod tests {
         );
         assert_eq!(asset.scene_colliders().len(), 5);
         assert_eq!(asset.pinned_indices().len(), 2);
+    }
+
+    fn mannequin_contact_evidence(template: GarmentTemplate) -> (usize, u64) {
+        let asset = template.build(18).expect("mannequin garment template");
+        let parameters = TextilePreset::CottonLike.parameters();
+        let mut cloth = TriangleMeshCloth::new(
+            asset.positions(),
+            asset.triangles(),
+            parameters.triangle_mesh_config(1.0),
+        )
+        .expect("template mesh");
+        for &index in asset.pinned_indices() {
+            cloth.pin(index).expect("template pin");
+        }
+
+        let mut collision_projections = 0;
+        for _ in 0..12 {
+            let report = cloth
+                .step_with_contacts(
+                    FixedStepConfig::default(),
+                    asset.scene_colliders(),
+                    parameters.contact_config(),
+                )
+                .expect("template step");
+            collision_projections += report.collision_projections;
+        }
+        (collision_projections, cloth.state_fingerprint())
+    }
+
+    #[test]
+    fn t_shirt_drapes_against_mannequin_deterministically() {
+        let first = mannequin_contact_evidence(GarmentTemplate::TShirt);
+        let second = mannequin_contact_evidence(GarmentTemplate::TShirt);
+
+        assert!(
+            first.0 > 0,
+            "T-shirt fixture must actually contact the mannequin"
+        );
+        assert_eq!(first, second, "mannequin drape replay must be deterministic");
     }
 
     #[test]
