@@ -73,11 +73,7 @@ pub(crate) struct MannequinAttachment {
 }
 
 impl MannequinAttachment {
-    pub const fn new(
-        particle_index: usize,
-        bone: HumanoidBone,
-        local_offset: [f32; 3],
-    ) -> Self {
+    pub const fn new(particle_index: usize, bone: HumanoidBone, local_offset: [f32; 3]) -> Self {
         Self {
             particle_index,
             bone,
@@ -87,8 +83,8 @@ impl MannequinAttachment {
 
     pub fn from_rest_position(particle_index: usize, bone: HumanoidBone, target: Vec3) -> Self {
         let rest = rest_pose();
-        let world = world_matrices(&hierarchy(&rest))
-            .expect("built-in mannequin hierarchy must be valid");
+        let world =
+            world_matrices(&hierarchy(&rest)).expect("built-in mannequin hierarchy must be valid");
         let node = node_for_bone(bone).expect("built-in garment attachment bone must be mapped");
         let origin = to_cloth_vec3(world[node].transform_point(AnimationVec3::ZERO));
         Self::new(
@@ -115,8 +111,9 @@ impl fmt::Display for MannequinAnimationError {
             Self::InvalidSpeed => {
                 formatter.write_str("mannequin animation speed must be finite and non-negative")
             }
-            Self::InvalidDeltaSeconds => formatter
-                .write_str("mannequin animation timestep must be finite and non-negative"),
+            Self::InvalidDeltaSeconds => {
+                formatter.write_str("mannequin animation timestep must be finite and non-negative")
+            }
         }
     }
 }
@@ -240,7 +237,8 @@ impl MannequinAnimator {
         for (node, pose) in self.nodes.iter_mut().zip(&self.pose) {
             node.local = *pose;
         }
-        self.world = world_matrices(&self.nodes).expect("built-in mannequin hierarchy must stay valid");
+        self.world =
+            world_matrices(&self.nodes).expect("built-in mannequin hierarchy must stay valid");
         self.refresh_colliders();
     }
 
@@ -291,9 +289,7 @@ impl MannequinAnimator {
 
     fn point(&self, node: usize, local_offset: [f32; 3]) -> Vec3 {
         let [x, y, z] = local_offset;
-        to_cloth_vec3(
-            self.world[node].transform_point(AnimationVec3::new(x, y, z)),
-        )
+        to_cloth_vec3(self.world[node].transform_point(AnimationVec3::new(x, y, z)))
     }
 
     fn push_capsule(&mut self, start: Vec3, end: Vec3, radius: f64) {
@@ -480,14 +476,16 @@ fn wave_clip() -> AnimationClip {
             ),
             rotation_track(
                 LEFT_LOWER_ARM,
-                [(0.0, -0.18), (0.25, 0.42), (0.5, -0.18), (0.75, 0.42), (1.0, -0.18)],
+                [
+                    (0.0, -0.18),
+                    (0.25, 0.42),
+                    (0.5, -0.18),
+                    (0.75, 0.42),
+                    (1.0, -0.18),
+                ],
                 Axis::Z,
             ),
-            rotation_track(
-                CHEST,
-                [(0.0, -0.05), (0.5, 0.05), (1.0, -0.05)],
-                Axis::Z,
-            ),
+            rotation_track(CHEST, [(0.0, -0.05), (0.5, 0.05), (1.0, -0.05)], Axis::Z),
         ],
     )
     .expect("built-in wave clip must be valid")
@@ -609,11 +607,8 @@ mod tests {
     #[test]
     fn animated_bone_attachment_tracks_the_sampled_pose() {
         let mut animator = MannequinAnimator::new();
-        let attachment = MannequinAttachment::new(
-            7,
-            HumanoidBone::LeftLowerArm,
-            [-0.36, -0.22, 0.0],
-        );
+        let attachment =
+            MannequinAttachment::new(7, HumanoidBone::LeftLowerArm, [-0.36, -0.22, 0.0]);
         animator.set_animation(MannequinAnimation::Wave);
         let initial = animator.attachment_target(attachment);
         animator.advance(0.25).unwrap();
