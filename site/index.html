@@ -166,6 +166,37 @@
               </div>
             </section>
 
+            <details class="settings-subgroup mannequin-panel" open>
+              <summary class="settings-subgroup-summary">
+                <span>
+                  <strong>Mannequin</strong>
+                  <span>Drive body collision and garment attachments with 3d-lab animation clips.</span>
+                </span>
+              </summary>
+              <div class="control-panel mannequin-grid">
+                <label class="control" for="mannequin-animation">
+                  <span>Motion</span>
+                  <select id="mannequin-animation" disabled>
+                    <option value="walk" selected>Walk</option>
+                  </select>
+                </label>
+
+                <label class="control range-control" for="mannequin-animation-speed">
+                  <span>Animation speed</span>
+                  <input
+                    id="mannequin-animation-speed"
+                    type="range"
+                    min="0"
+                    max="3"
+                    step="0.1"
+                    value="1"
+                    disabled
+                  />
+                  <output id="mannequin-animation-speed-value" for="mannequin-animation-speed">1.00×</output>
+                </label>
+              </div>
+            </details>
+
             <details class="settings-subgroup obstacle-panel">
               <summary class="settings-subgroup-summary">
                 <span>
@@ -335,8 +366,10 @@
         alter interaction meaning. The inspector reads authoritative topology, constraint, error, contact,
         self-collision, obstacle, mannequin-collider, and normalized-asset evidence from Rust; wireframe
         and normal overlays are rendering-only views of authoritative positions and triangles. Built-in
-        garment templates are deterministic drape fixtures rather than inferred sewing patterns. The mannequin includes upper-body,
-        pelvis, and leg collision primitives so longer garments can exercise lower-body contact. Uploaded mesh formats still
+        garment templates are deterministic drape fixtures rather than inferred sewing patterns. Mannequin pose sampling, quaternion
+        interpolation, and parent/child transform evaluation reuse the pinned renderer-independent <code>three-d-animation</code>
+        contract from 3d-lab; Cloth Lab remains responsible for adapting those joint transforms into collision primitives and garment
+        attachments. Uploaded mesh formats still
         provide geometry only: seams, patterns, measured fabric properties, skins, and animation are not
         inferred when unsupported by the source.
       </p>
