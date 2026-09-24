@@ -3,11 +3,11 @@ use core::fmt;
 use three_d_animation::retarget::HumanoidBone;
 #[cfg(any(target_arch = "wasm32", test))]
 use three_d_animation::retarget::{HumanoidBinding, HumanoidRig};
-use three_d_animation::{Quat, Transform, TransformNode, world_matrices};
 #[cfg(any(target_arch = "wasm32", test))]
 use three_d_animation::{
     AnimationClip, AnimationTrack, Interpolation, Keyframe, KeyframeTrack, LoopMode, Mat4,
 };
+use three_d_animation::{Quat, Transform, TransformNode, world_matrices};
 use three_d_core::Vec3 as AnimationVec3;
 
 use crate::Vec3;
