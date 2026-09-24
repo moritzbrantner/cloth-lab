@@ -16,6 +16,7 @@ use crate::{CapsuleCollider, ClothCollider, SphereCollider};
 
 #[cfg(any(target_arch = "wasm32", test))]
 const COLLISION_THICKNESS: f64 = 0.025;
+const MAX_ANIMATION_SPEED: f32 = 16.0;
 
 const HIPS: usize = 0;
 const SPINE: usize = 1;
@@ -115,7 +116,7 @@ impl fmt::Display for MannequinAnimationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidSpeed => {
-                formatter.write_str("mannequin animation speed must be finite and non-negative")
+                formatter.write_str("mannequin animation speed must be finite and between 0 and 16")
             }
             Self::InvalidDeltaSeconds => {
                 formatter.write_str("mannequin animation timestep must be finite and non-negative")
@@ -200,7 +201,7 @@ impl MannequinAnimator {
     }
 
     pub fn set_speed(&mut self, speed: f32) -> Result<(), MannequinAnimationError> {
-        if !speed.is_finite() || speed < 0.0 {
+        if !speed.is_finite() || !(0.0..=MAX_ANIMATION_SPEED).contains(&speed) {
             return Err(MannequinAnimationError::InvalidSpeed);
         }
         self.speed = speed;
@@ -211,7 +212,19 @@ impl MannequinAnimator {
         if !delta_seconds.is_finite() || delta_seconds < 0.0 {
             return Err(MannequinAnimationError::InvalidDeltaSeconds);
         }
-        self.time_seconds += delta_seconds as f32 * self.speed;
+        let delta_seconds = delta_seconds as f32;
+        if !delta_seconds.is_finite() {
+            return Err(MannequinAnimationError::InvalidDeltaSeconds);
+        }
+        let next_time = self.time_seconds + delta_seconds * self.speed;
+        if !next_time.is_finite() {
+            return Err(MannequinAnimationError::InvalidDeltaSeconds);
+        }
+        self.time_seconds = match self.animation {
+            MannequinAnimation::Rest => 0.0,
+            MannequinAnimation::Walk => next_time.rem_euclid(self.walk.duration()),
+            MannequinAnimation::Wave => next_time.rem_euclid(self.wave.duration()),
+        };
         self.sample_current_pose();
         Ok(())
     }
@@ -633,6 +646,20 @@ mod tests {
     }
 
     #[test]
+    fn repeating_clip_time_remains_bounded() {
+        let mut animator = MannequinAnimator::new();
+        animator.set_animation(MannequinAnimation::Walk);
+        animator.set_speed(MAX_ANIMATION_SPEED).unwrap();
+
+        for _ in 0..10_000 {
+            animator.advance(1.0 / 60.0).unwrap();
+        }
+
+        assert!(animator.time_seconds().is_finite());
+        assert!((0.0..animator.walk.duration()).contains(&animator.time_seconds()));
+    }
+
+    #[test]
     fn animation_speed_fails_closed() {
         let mut animator = MannequinAnimator::new();
 
@@ -641,7 +668,15 @@ mod tests {
             Err(MannequinAnimationError::InvalidSpeed)
         );
         assert_eq!(
+            animator.set_speed(MAX_ANIMATION_SPEED + 0.01),
+            Err(MannequinAnimationError::InvalidSpeed)
+        );
+        assert_eq!(
             animator.advance(f64::INFINITY),
+            Err(MannequinAnimationError::InvalidDeltaSeconds)
+        );
+        assert_eq!(
+            animator.advance(f64::from(f32::MAX) * 2.0),
             Err(MannequinAnimationError::InvalidDeltaSeconds)
         );
     }
