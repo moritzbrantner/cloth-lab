@@ -441,10 +441,7 @@ fn nearest_top_vertex(positions: &[Vec3], columns: usize, target_x: f64) -> usiz
         .map_or(0, |(index, _)| index)
 }
 
-fn shoulder_attachments(
-    positions: &[Vec3],
-    pinned_indices: &[usize],
-) -> Vec<MannequinAttachment> {
+fn shoulder_attachments(positions: &[Vec3], pinned_indices: &[usize]) -> Vec<MannequinAttachment> {
     vec![
         MannequinAttachment::from_rest_position(
             pinned_indices[0],
@@ -459,10 +456,7 @@ fn shoulder_attachments(
     ]
 }
 
-fn hip_attachments(
-    positions: &[Vec3],
-    pinned_indices: &[usize],
-) -> Vec<MannequinAttachment> {
+fn hip_attachments(positions: &[Vec3], pinned_indices: &[usize]) -> Vec<MannequinAttachment> {
     pinned_indices
         .iter()
         .copied()
@@ -627,18 +621,16 @@ mod tests {
         let config = FixedStepConfig::default();
         let mut projections = 0;
         for _ in 0..60 {
-            animator.advance(config.delta_seconds).expect("animation step");
+            animator
+                .advance(config.delta_seconds)
+                .expect("animation step");
             for &(attachment, drag) in &attachments {
                 cloth
                     .update_particle_drag(drag, animator.attachment_target(attachment))
                     .expect("animated attachment target");
             }
             let report = cloth
-                .step_with_contacts(
-                    config,
-                    animator.colliders(),
-                    parameters.contact_config(),
-                )
+                .step_with_contacts(config, animator.colliders(), parameters.contact_config())
                 .expect("animated cloth step");
             projections += report.collision_projections;
         }
