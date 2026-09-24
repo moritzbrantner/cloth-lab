@@ -157,6 +157,7 @@ impl GarmentTemplateAsset {
         self.mannequin_attachments.len()
     }
 
+    #[cfg(any(target_arch = "wasm32", test))]
     pub(crate) fn mannequin_attachments(&self) -> &[MannequinAttachment] {
         &self.mannequin_attachments
     }
