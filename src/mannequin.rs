@@ -1,14 +1,20 @@
 use core::fmt;
 
-use three_d_animation::retarget::{HumanoidBinding, HumanoidBone, HumanoidRig};
+use three_d_animation::retarget::HumanoidBone;
+#[cfg(any(target_arch = "wasm32", test))]
+use three_d_animation::retarget::{HumanoidBinding, HumanoidRig};
+use three_d_animation::{Quat, Transform, TransformNode, world_matrices};
+#[cfg(any(target_arch = "wasm32", test))]
 use three_d_animation::{
-    AnimationClip, AnimationTrack, Interpolation, Keyframe, KeyframeTrack, LoopMode, Mat4, Quat,
-    Transform, TransformNode, world_matrices,
+    AnimationClip, AnimationTrack, Interpolation, Keyframe, KeyframeTrack, LoopMode, Mat4,
 };
 use three_d_core::Vec3 as AnimationVec3;
 
-use crate::{CapsuleCollider, ClothCollider, SphereCollider, Vec3};
+use crate::Vec3;
+#[cfg(any(target_arch = "wasm32", test))]
+use crate::{CapsuleCollider, ClothCollider, SphereCollider};
 
+#[cfg(any(target_arch = "wasm32", test))]
 const COLLISION_THICKNESS: f64 = 0.025;
 
 const HIPS: usize = 0;
@@ -120,6 +126,7 @@ impl fmt::Display for MannequinAnimationError {
 
 impl std::error::Error for MannequinAnimationError {}
 
+#[cfg(any(target_arch = "wasm32", test))]
 pub(crate) struct MannequinAnimator {
     rig: HumanoidRig,
     nodes: Vec<TransformNode>,
@@ -133,6 +140,7 @@ pub(crate) struct MannequinAnimator {
     colliders: Vec<ClothCollider>,
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 impl MannequinAnimator {
     #[must_use]
     pub fn new() -> Self {
@@ -366,6 +374,7 @@ fn node_for_bone(bone: HumanoidBone) -> Option<usize> {
     }
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 fn humanoid_bindings() -> [HumanoidBinding; JOINT_COUNT] {
     [
         binding(HumanoidBone::Hips, HIPS),
@@ -384,6 +393,7 @@ fn humanoid_bindings() -> [HumanoidBinding; JOINT_COUNT] {
     ]
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 const fn binding(bone: HumanoidBone, node: usize) -> HumanoidBinding {
     HumanoidBinding { bone, node }
 }
@@ -396,6 +406,7 @@ const fn transform(x: f32, y: f32, z: f32) -> Transform {
     }
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 fn walk_clip() -> AnimationClip {
     AnimationClip::new(
         "walk",
@@ -465,6 +476,7 @@ fn walk_clip() -> AnimationClip {
     .with_loop_mode(LoopMode::Repeat)
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 fn wave_clip() -> AnimationClip {
     AnimationClip::new(
         "wave",
@@ -493,11 +505,13 @@ fn wave_clip() -> AnimationClip {
 }
 
 #[derive(Clone, Copy)]
+#[cfg(any(target_arch = "wasm32", test))]
 enum Axis {
     X,
     Z,
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 fn rotation_track<const N: usize>(
     node: usize,
     samples: [(f32, f32); N],
@@ -561,6 +575,8 @@ mod tests {
         let animator = MannequinAnimator::new();
 
         assert_eq!(animator.joint_count(), JOINT_COUNT);
+        assert_eq!(animator.animation(), MannequinAnimation::Rest);
+        assert_eq!(animator.speed(), 1.0);
         assert_eq!(animator.colliders().len(), 12);
         assert!(
             collider_signature(animator.colliders())
