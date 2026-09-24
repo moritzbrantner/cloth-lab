@@ -36,4 +36,6 @@ pub use self_collision::{
 };
 pub use template::{GarmentTemplate, GarmentTemplateAsset, GarmentTemplateError};
 #[cfg(target_arch = "wasm32")]
-pub use web::{BrowserClothSession, garment_template_catalog};
+pub use web::{
+    BrowserClothSession, garment_template_catalog, mannequin_animation_catalog,
+};
