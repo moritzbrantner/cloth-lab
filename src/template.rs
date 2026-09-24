@@ -383,7 +383,7 @@ fn build_poncho(columns: usize) -> GarmentTemplateAsset {
         pinned_indices,
         editable_obstacle: None,
     }
-}}
+}
 
 fn variable_width_panel(
     columns: usize,
