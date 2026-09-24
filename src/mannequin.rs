@@ -84,6 +84,23 @@ impl MannequinAttachment {
             local_offset,
         }
     }
+
+    pub fn from_rest_position(particle_index: usize, bone: HumanoidBone, target: Vec3) -> Self {
+        let rest = rest_pose();
+        let world = world_matrices(&hierarchy(&rest))
+            .expect("built-in mannequin hierarchy must be valid");
+        let node = node_for_bone(bone).expect("built-in garment attachment bone must be mapped");
+        let origin = to_cloth_vec3(world[node].transform_point(AnimationVec3::ZERO));
+        Self::new(
+            particle_index,
+            bone,
+            [
+                (target.x - origin.x) as f32,
+                (target.y - origin.y) as f32,
+                (target.z - origin.z) as f32,
+            ],
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -237,64 +254,39 @@ impl MannequinAnimator {
             thickness: COLLISION_THICKNESS,
         }));
 
-        self.push_capsule(
-            self.point(LEFT_UPPER_ARM, [0.0, 0.0, 0.0]),
-            self.point(RIGHT_UPPER_ARM, [0.0, 0.0, 0.0]),
-            0.20,
-        );
-        self.push_capsule(
-            self.point(HIPS, [0.0, 0.12, 0.0]),
-            self.point(CHEST, [0.0, 0.10, 0.0]),
-            0.38,
-        );
+        let left_shoulder = self.point(LEFT_UPPER_ARM, [0.0, 0.0, 0.0]);
+        let right_shoulder = self.point(RIGHT_UPPER_ARM, [0.0, 0.0, 0.0]);
+        self.push_capsule(left_shoulder, right_shoulder, 0.20);
 
-        self.push_capsule(
-            self.point(LEFT_UPPER_ARM, [0.0, 0.0, 0.0]),
-            self.point(LEFT_LOWER_ARM, [0.0, 0.0, 0.0]),
-            0.16,
-        );
-        self.push_capsule(
-            self.point(LEFT_LOWER_ARM, [0.0, 0.0, 0.0]),
-            self.point(LEFT_LOWER_ARM, [-0.38, -0.24, 0.0]),
-            0.13,
-        );
-        self.push_capsule(
-            self.point(RIGHT_UPPER_ARM, [0.0, 0.0, 0.0]),
-            self.point(RIGHT_LOWER_ARM, [0.0, 0.0, 0.0]),
-            0.16,
-        );
-        self.push_capsule(
-            self.point(RIGHT_LOWER_ARM, [0.0, 0.0, 0.0]),
-            self.point(RIGHT_LOWER_ARM, [0.38, -0.24, 0.0]),
-            0.13,
-        );
+        let torso_start = self.point(HIPS, [0.0, 0.12, 0.0]);
+        let torso_end = self.point(CHEST, [0.0, 0.10, 0.0]);
+        self.push_capsule(torso_start, torso_end, 0.38);
 
-        self.push_capsule(
-            self.point(HIPS, [-0.38, 0.0, 0.0]),
-            self.point(HIPS, [0.38, 0.0, 0.0]),
-            0.24,
-        );
+        let left_elbow = self.point(LEFT_LOWER_ARM, [0.0, 0.0, 0.0]);
+        self.push_capsule(left_shoulder, left_elbow, 0.16);
+        let left_hand = self.point(LEFT_LOWER_ARM, [-0.38, -0.24, 0.0]);
+        self.push_capsule(left_elbow, left_hand, 0.13);
 
-        self.push_capsule(
-            self.point(LEFT_UPPER_LEG, [0.0, 0.0, 0.0]),
-            self.point(LEFT_LOWER_LEG, [0.0, 0.0, 0.0]),
-            0.17,
-        );
-        self.push_capsule(
-            self.point(LEFT_LOWER_LEG, [0.0, 0.0, 0.0]),
-            self.point(LEFT_LOWER_LEG, [0.0, -0.68, 0.0]),
-            0.15,
-        );
-        self.push_capsule(
-            self.point(RIGHT_UPPER_LEG, [0.0, 0.0, 0.0]),
-            self.point(RIGHT_LOWER_LEG, [0.0, 0.0, 0.0]),
-            0.17,
-        );
-        self.push_capsule(
-            self.point(RIGHT_LOWER_LEG, [0.0, 0.0, 0.0]),
-            self.point(RIGHT_LOWER_LEG, [0.0, -0.68, 0.0]),
-            0.15,
-        );
+        let right_elbow = self.point(RIGHT_LOWER_ARM, [0.0, 0.0, 0.0]);
+        self.push_capsule(right_shoulder, right_elbow, 0.16);
+        let right_hand = self.point(RIGHT_LOWER_ARM, [0.38, -0.24, 0.0]);
+        self.push_capsule(right_elbow, right_hand, 0.13);
+
+        let pelvis_left = self.point(HIPS, [-0.38, 0.0, 0.0]);
+        let pelvis_right = self.point(HIPS, [0.38, 0.0, 0.0]);
+        self.push_capsule(pelvis_left, pelvis_right, 0.24);
+
+        let left_hip = self.point(LEFT_UPPER_LEG, [0.0, 0.0, 0.0]);
+        let left_knee = self.point(LEFT_LOWER_LEG, [0.0, 0.0, 0.0]);
+        self.push_capsule(left_hip, left_knee, 0.17);
+        let left_ankle = self.point(LEFT_LOWER_LEG, [0.0, -0.68, 0.0]);
+        self.push_capsule(left_knee, left_ankle, 0.15);
+
+        let right_hip = self.point(RIGHT_UPPER_LEG, [0.0, 0.0, 0.0]);
+        let right_knee = self.point(RIGHT_LOWER_LEG, [0.0, 0.0, 0.0]);
+        self.push_capsule(right_hip, right_knee, 0.17);
+        let right_ankle = self.point(RIGHT_LOWER_LEG, [0.0, -0.68, 0.0]);
+        self.push_capsule(right_knee, right_ankle, 0.15);
     }
 
     fn point(&self, node: usize, local_offset: [f32; 3]) -> Vec3 {
@@ -354,6 +346,28 @@ fn hierarchy(rest_pose: &[Transform]) -> Vec<TransformNode> {
         .zip(PARENTS)
         .map(|(local, parent)| TransformNode { parent, local })
         .collect()
+}
+
+fn node_for_bone(bone: HumanoidBone) -> Option<usize> {
+    match bone {
+        HumanoidBone::Hips => Some(HIPS),
+        HumanoidBone::Spine => Some(SPINE),
+        HumanoidBone::Chest => Some(CHEST),
+        HumanoidBone::Neck => Some(NECK),
+        HumanoidBone::Head => Some(HEAD),
+        HumanoidBone::LeftUpperArm => Some(LEFT_UPPER_ARM),
+        HumanoidBone::LeftLowerArm => Some(LEFT_LOWER_ARM),
+        HumanoidBone::RightUpperArm => Some(RIGHT_UPPER_ARM),
+        HumanoidBone::RightLowerArm => Some(RIGHT_LOWER_ARM),
+        HumanoidBone::LeftUpperLeg => Some(LEFT_UPPER_LEG),
+        HumanoidBone::LeftLowerLeg => Some(LEFT_LOWER_LEG),
+        HumanoidBone::RightUpperLeg => Some(RIGHT_UPPER_LEG),
+        HumanoidBone::RightLowerLeg => Some(RIGHT_LOWER_LEG),
+        HumanoidBone::LeftHand
+        | HumanoidBone::RightHand
+        | HumanoidBone::LeftFoot
+        | HumanoidBone::RightFoot => None,
+    }
 }
 
 fn humanoid_bindings() -> [HumanoidBinding; JOINT_COUNT] {
