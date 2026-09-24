@@ -5,8 +5,9 @@ use wasm_bindgen::prelude::*;
 use crate::{
     CapsuleCollider, ClothCollider, ContactConfig, FixedStepConfig, GarmentAsset, GarmentImporter,
     GarmentSourceFormat, GarmentTemplate, GarmentTemplateAsset, GlbGarmentImporter,
-    ObjGarmentImporter, ParticleDrag, SelfCollisionConfig, SelfCollisionReport, StepReport,
-    TextilePreset, TriangleMeshCloth, Vec3,
+    MannequinAnimation, ObjGarmentImporter, ParticleDrag, SelfCollisionConfig, SelfCollisionReport,
+    StepReport, TextilePreset, TriangleMeshCloth, Vec3,
+    mannequin::{MannequinAnimator, MannequinAttachment},
 };
 
 mod obstacle;
@@ -28,6 +29,8 @@ pub struct BrowserClothSession {
     step_config: FixedStepConfig,
     colliders: Vec<ClothCollider>,
     fixed_collider_count: usize,
+    mannequin: Option<MannequinAnimator>,
+    mannequin_attachments: BTreeMap<usize, MannequinAttachment>,
     contact_config: ContactConfig,
     capsule: Option<CapsuleCollider>,
     source_kind: &'static str,
@@ -35,6 +38,16 @@ pub struct BrowserClothSession {
     self_collision_config: Option<SelfCollisionConfig>,
     last_report: Option<StepReport>,
     last_self_collision_report: SelfCollisionReport,
+}
+
+#[wasm_bindgen(js_name = mannequinAnimationCatalog)]
+pub fn mannequin_animation_catalog() -> Vec<String> {
+    let mut catalog = Vec::with_capacity(MannequinAnimation::ALL.len() * 2);
+    for animation in MannequinAnimation::ALL {
+        catalog.push(animation.key().to_owned());
+        catalog.push(animation.display_name().to_owned());
+    }
+    catalog
 }
 
 #[wasm_bindgen(js_name = garmentTemplateCatalog)]
@@ -170,6 +183,18 @@ impl BrowserClothSession {
             .collect()
     }
 
+    #[wasm_bindgen(js_name = mannequinAttachedIndices)]
+    pub fn mannequin_attached_indices(&self) -> Result<Vec<u32>, JsValue> {
+        self.mannequin_attachments
+            .keys()
+            .copied()
+            .map(|index| {
+                u32::try_from(index)
+                    .map_err(|_| JsValue::from_str("mannequin attachment index exceeds u32"))
+            })
+            .collect()
+    }
+
     #[wasm_bindgen(js_name = capsuleCollider)]
     #[must_use]
     pub fn capsule_collider(&self) -> Vec<f64> {
@@ -218,6 +243,67 @@ impl BrowserClothSession {
             }
         }
         descriptors
+    }
+
+    #[wasm_bindgen(js_name = hasMannequin)]
+    #[must_use]
+    pub fn has_mannequin(&self) -> bool {
+        self.mannequin.is_some()
+    }
+
+    #[wasm_bindgen(js_name = mannequinJointCount)]
+    #[must_use]
+    pub fn mannequin_joint_count(&self) -> usize {
+        self.mannequin
+            .as_ref()
+            .map_or(0, MannequinAnimator::joint_count)
+    }
+
+    #[wasm_bindgen(js_name = mannequinAnimation)]
+    #[must_use]
+    pub fn mannequin_animation(&self) -> String {
+        self.mannequin
+            .as_ref()
+            .map(|mannequin| mannequin.animation().key().to_owned())
+            .unwrap_or_default()
+    }
+
+    #[wasm_bindgen(js_name = mannequinAnimationTime)]
+    #[must_use]
+    pub fn mannequin_animation_time(&self) -> f64 {
+        self.mannequin
+            .as_ref()
+            .map_or(0.0, |mannequin| f64::from(mannequin.time_seconds()))
+    }
+
+    #[wasm_bindgen(js_name = mannequinAnimationSpeed)]
+    #[must_use]
+    pub fn mannequin_animation_speed(&self) -> f64 {
+        self.mannequin
+            .as_ref()
+            .map_or(0.0, |mannequin| f64::from(mannequin.speed()))
+    }
+
+    #[wasm_bindgen(js_name = setMannequinAnimation)]
+    pub fn set_mannequin_animation(&mut self, value: &str) -> Result<(), JsValue> {
+        let animation = MannequinAnimation::from_key(value)
+            .ok_or_else(|| JsValue::from_str("unknown mannequin animation"))?;
+        let mannequin = self
+            .mannequin
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("this cloth session has no mannequin"))?;
+        mannequin.set_animation(animation);
+        self.sync_mannequin_state()
+    }
+
+    #[wasm_bindgen(js_name = setMannequinAnimationSpeed)]
+    pub fn set_mannequin_animation_speed(&mut self, speed: f64) -> Result<(), JsValue> {
+        let speed = speed as f32;
+        let mannequin = self
+            .mannequin
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("this cloth session has no mannequin"))?;
+        mannequin.set_speed(speed).map_err(js_error)
     }
 
     #[wasm_bindgen(js_name = sourceKind)]
@@ -293,6 +379,13 @@ impl BrowserClothSession {
     }
 
     pub fn step(&mut self) -> Result<(), JsValue> {
+        if let Some(mannequin) = self.mannequin.as_mut() {
+            mannequin
+                .advance(self.step_config.delta_seconds)
+                .map_err(js_error)?;
+            self.sync_mannequin_state()?;
+        }
+
         if let Some(self_collision) = self.self_collision_config {
             let report = self
                 .cloth
@@ -329,6 +422,10 @@ impl BrowserClothSession {
         self.last_self_collision_report = SelfCollisionReport::default();
         for (index, target) in targets {
             self.pin_particle_at(index, target)?;
+        }
+        if let Some(mannequin) = self.mannequin.as_mut() {
+            mannequin.reset();
+            self.sync_mannequin_state()?;
         }
         Ok(())
     }
@@ -400,6 +497,7 @@ impl BrowserClothSession {
         if let Some(stored) = self.pins.get_mut(&particle_index) {
             stored.target = target;
         }
+        self.mannequin_attachments.remove(&particle_index);
         Ok(())
     }
 
@@ -414,6 +512,7 @@ impl BrowserClothSession {
             .ok_or_else(|| JsValue::from_str("particle is not pinned"))?;
         self.cloth.end_particle_drag(pin.drag).map_err(js_error)?;
         self.pins.remove(&particle_index);
+        self.mannequin_attachments.remove(&particle_index);
         Ok(())
     }
 
@@ -474,6 +573,50 @@ impl BrowserClothSession {
             .insert(particle_index, BrowserPin { drag, target });
         Ok(())
     }
+
+    fn sync_mannequin_state(&mut self) -> Result<(), JsValue> {
+        let Some(mannequin) = self.mannequin.as_ref() else {
+            return Ok(());
+        };
+        if mannequin.colliders().len() != self.fixed_collider_count {
+            return Err(JsValue::from_str(
+                "mannequin collider topology changed unexpectedly",
+            ));
+        }
+
+        for (target, source) in self.colliders[..self.fixed_collider_count]
+            .iter_mut()
+            .zip(mannequin.colliders())
+        {
+            *target = *source;
+        }
+
+        let attachment_targets = self
+            .mannequin_attachments
+            .values()
+            .copied()
+            .map(|attachment| {
+                (
+                    attachment.particle_index,
+                    mannequin.attachment_target(attachment),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (particle_index, target) in attachment_targets {
+            let pin = self
+                .pins
+                .get(&particle_index)
+                .copied()
+                .ok_or_else(|| JsValue::from_str("mannequin attachment lost its cloth pin"))?;
+            self.cloth
+                .update_particle_drag(pin.drag, target)
+                .map_err(js_error)?;
+            if let Some(stored) = self.pins.get_mut(&particle_index) {
+                stored.target = target;
+            }
+        }
+        Ok(())
+    }
 }
 
 fn build_template_session(
@@ -485,11 +628,23 @@ fn build_template_session(
     let positions = asset.positions().to_vec();
     let triangles = asset.triangles().to_vec();
     let pinned_indices = asset.pinned_indices().to_vec();
+    let mannequin_attachments = asset
+        .mannequin_attachments()
+        .iter()
+        .copied()
+        .map(|attachment| (attachment.particle_index, attachment))
+        .collect::<BTreeMap<_, _>>();
     let source_kind = asset.template().source_kind();
     let normalized_asset_fingerprint = asset.simulation_fingerprint();
-    let fixed_collider_count = asset.scene_colliders().len();
+    let mannequin = asset
+        .template()
+        .uses_mannequin()
+        .then(MannequinAnimator::new);
+    let mut colliders = mannequin
+        .as_ref()
+        .map_or_else(Vec::new, |mannequin| mannequin.colliders().to_vec());
+    let fixed_collider_count = colliders.len();
     let editable_obstacle = asset.editable_obstacle();
-    let mut colliders = asset.scene_colliders().to_vec();
     if let Some(collider) = editable_obstacle {
         colliders.push(collider);
     }
@@ -508,6 +663,8 @@ fn build_template_session(
         step_config: FixedStepConfig::default(),
         colliders,
         fixed_collider_count,
+        mannequin,
+        mannequin_attachments,
         contact_config: parameters.contact_config(),
         capsule,
         source_kind,
@@ -523,6 +680,7 @@ fn build_template_session(
             .ok_or_else(|| JsValue::from_str("template pin index is outside the cloth"))?;
         session.pin_particle_at(index, target)?;
     }
+    session.sync_mannequin_state()?;
     Ok(session)
 }
 
@@ -548,6 +706,8 @@ fn build_session(asset: GarmentAsset, preset: &str) -> Result<BrowserClothSessio
         step_config: FixedStepConfig::default(),
         colliders: Vec::new(),
         fixed_collider_count: 0,
+        mannequin: None,
+        mannequin_attachments: BTreeMap::new(),
         contact_config: parameters.contact_config(),
         capsule: None,
         source_kind,

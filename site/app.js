@@ -15,6 +15,9 @@ const garmentTemplate = document.querySelector("#garment-template");
 const templateSummary = document.querySelector("#template-summary");
 const settingsSummaryDetail = document.querySelector("#settings-summary-detail");
 const materialPreset = document.querySelector("#material-preset");
+const mannequinAnimation = document.querySelector("#mannequin-animation");
+const mannequinAnimationSpeed = document.querySelector("#mannequin-animation-speed");
+const mannequinAnimationSpeedValue = document.querySelector("#mannequin-animation-speed-value");
 const meshResolution = document.querySelector("#mesh-resolution");
 const meshResolutionValue = document.querySelector("#mesh-resolution-value");
 const gravityControl = document.querySelector("#gravity-control");
@@ -586,6 +589,7 @@ function refreshLivePins() {
 
 function refreshLiveGeometry(refreshFingerprint = false) {
   livePositions = flatPositionsToVectors(liveSession.positions());
+  liveSceneColliders = sceneCollidersFromFlat(liveSession.sceneColliders());
   if (refreshFingerprint || liveFingerprint === "") {
     liveFingerprint = liveSession.fingerprint();
   }
@@ -621,7 +625,10 @@ function updateSettingsSummary(sourceLabel = null) {
   const templateLabel =
     garmentTemplate.options[garmentTemplate.selectedIndex]?.textContent ?? garmentTemplate.value;
   const source = sourceLabel ?? currentUpload?.name ?? templateLabel;
-  settingsSummaryDetail.textContent = `${source} · ${selectedMaterialLabel()}`;
+  const motion = liveSession?.hasMannequin()
+    ? ` · ${selectedMannequinAnimationLabel()}`
+    : "";
+  settingsSummaryDetail.textContent = `${source} · ${selectedMaterialLabel()}${motion}`;
 }
 
 function updateTemplateSummary() {
@@ -660,6 +667,54 @@ function populateTemplateCatalog(module) {
   }
   updateTemplateSummary();
   updateSettingsSummary();
+}
+
+function populateMannequinAnimationCatalog(module) {
+  const catalog = Array.from(module.mannequinAnimationCatalog());
+  if (catalog.length === 0 || catalog.length % 2 !== 0) {
+    throw new Error("Rust solver returned an invalid mannequin animation catalog");
+  }
+
+  const selectedKey = mannequinAnimation.value || "walk";
+  const options = [];
+  for (let offset = 0; offset < catalog.length; offset += 2) {
+    const [key, label] = catalog.slice(offset, offset + 2);
+    if (!key || !label) {
+      throw new Error("Rust solver returned incomplete mannequin animation metadata");
+    }
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = label;
+    options.push(option);
+  }
+
+  mannequinAnimation.replaceChildren(...options);
+  mannequinAnimation.value = selectedKey;
+  if (mannequinAnimation.selectedIndex < 0) {
+    mannequinAnimation.value = "walk";
+  }
+  if (mannequinAnimation.selectedIndex < 0) {
+    mannequinAnimation.selectedIndex = 0;
+  }
+}
+
+function selectedMannequinAnimationLabel() {
+  return mannequinAnimation.options[mannequinAnimation.selectedIndex]?.textContent ??
+    mannequinAnimation.value;
+}
+
+function syncMannequinControlState() {
+  const enabled = Boolean(liveSession?.hasMannequin());
+  mannequinAnimation.disabled = !enabled;
+  mannequinAnimationSpeed.disabled = !enabled;
+  if (enabled) {
+    const active = liveSession.mannequinAnimation();
+    if (active && Array.from(mannequinAnimation.options).some((option) => option.value === active)) {
+      mannequinAnimation.value = active;
+    }
+    mannequinAnimationSpeed.value = String(liveSession.mannequinAnimationSpeed());
+  }
+  updateControlLabels();
 }
 
 function sourceKindLabel(sourceKind) {
@@ -704,8 +759,9 @@ function updateLiveInspector() {
   inspectConstraints.textContent = `${liveSession.stretchConstraintCount()} stretch · ${liveSession.bendingConstraintCount()} bend`;
   inspectErrors.textContent = `stretch ${maxStretchError.toExponential(2)} · bend ${maxBendingError.toExponential(2)}`;
   inspectContacts.textContent = `${liveSession.lastCollisionProjections()} projections · ${liveSession.lastFrictionCorrections()} friction`;
-  inspectMannequin.textContent =
-    liveSceneColliders.length === 0 ? "none" : `${liveSceneColliders.length} solver colliders`;
+  inspectMannequin.textContent = liveSession.hasMannequin()
+    ? `${liveSession.mannequinJointCount()} joints · ${selectedMannequinAnimationLabel()} · ${liveSession.mannequinAnimationTime().toFixed(2)} s · ${liveSceneColliders.length} colliders`
+    : "none";
 }
 
 function updateSnapshotInspector(frame) {
@@ -731,6 +787,7 @@ async function loadWasmModule() {
     wasmModulePromise = import("./pkg/cloth_lab.js").then(async (module) => {
       await module.default();
       populateTemplateCatalog(module);
+      populateMannequinAnimationCatalog(module);
       return module;
     });
   }
@@ -746,29 +803,71 @@ function applyRuntimeControls(session) {
   session.setGravity(Number(gravityControl.value));
   session.setSolverIterations(Number(solverIterations.value));
   session.setVelocityDamping(Number(velocityDamping.value));
+  if (session.hasMannequin()) {
+    session.setMannequinAnimation(mannequinAnimation.value);
+    session.setMannequinAnimationSpeed(Number(mannequinAnimationSpeed.value));
+  }
 }
 
 function capturePins() {
   if (!liveSession) {
     return null;
   }
-  return livePinned.map((index) => ({ index, target: [...livePositions[index]] }));
+  const mannequinAttached = new Set(Array.from(liveSession.mannequinAttachedIndices()));
+  return livePinned.map((index) => ({
+    index,
+    target: [...livePositions[index]],
+    attached: mannequinAttached.has(index),
+  }));
 }
 
 function restorePins(session, pins) {
   if (pins === null) {
     return;
   }
-  for (const index of Array.from(session.pinnedIndices())) {
-    session.unpinParticle(index);
-  }
   const vertexCount = session.vertexCount();
-  for (const pin of pins) {
-    if (pin.index < 0 || pin.index >= vertexCount || !pin.target.every(Number.isFinite)) {
-      continue;
+  const validPins = pins.filter(
+    (pin) =>
+      pin.index >= 0 &&
+      pin.index < vertexCount &&
+      Array.isArray(pin.target) &&
+      pin.target.length === 3 &&
+      pin.target.every(Number.isFinite),
+  );
+  const operations = planPinRestoration(
+    Array.from(session.pinnedIndices()),
+    Array.from(session.mannequinAttachedIndices()),
+    validPins,
+  );
+  for (const operation of operations) {
+    switch (operation.kind) {
+      case "keep-attached":
+        break;
+      case "remove":
+        session.unpinParticle(operation.index);
+        break;
+      case "replace-detached":
+        session.unpinParticle(operation.index);
+        session.pinParticle(operation.index);
+        session.movePin(
+          operation.index,
+          operation.target[0],
+          operation.target[1],
+          operation.target[2],
+        );
+        break;
+      case "add-detached":
+        session.pinParticle(operation.index);
+        session.movePin(
+          operation.index,
+          operation.target[0],
+          operation.target[1],
+          operation.target[2],
+        );
+        break;
+      default:
+        throw new Error(`unknown pin restoration operation: ${operation.kind}`);
     }
-    session.pinParticle(pin.index);
-    session.movePin(pin.index, pin.target[0], pin.target[1], pin.target[2]);
   }
 }
 
@@ -793,6 +892,7 @@ function activateSession(session, sourceLabel, upload, autoplay) {
   restartButton.disabled = false;
   useDemoButton.disabled = upload === null;
   meshResolution.disabled = upload !== null;
+  syncMannequinControlState();
   setPlaying(autoplay);
   updateInteractionCursor();
   drawFrame();
@@ -1028,6 +1128,7 @@ function faceCountForResolution(resolution) {
 function updateControlLabels() {
   const resolution = Number(meshResolution.value);
   meshResolutionValue.textContent = `${resolution} columns`;
+  mannequinAnimationSpeedValue.textContent = `${Number(mannequinAnimationSpeed.value).toFixed(2)}×`;
   gravityValue.textContent = `${Number(gravityControl.value).toFixed(2)} m/s²`;
   solverIterationsValue.textContent = solverIterations.value;
   velocityDampingValue.textContent = Number(velocityDamping.value).toFixed(3);
@@ -1190,6 +1291,34 @@ garmentTemplate.addEventListener("change", async () => {
     await activateDemo(null, playing);
   } catch (error) {
     status.textContent = `Could not load garment template: ${formatError(error)}`;
+  }
+});
+
+mannequinAnimation.addEventListener("change", () => {
+  if (!liveSession?.hasMannequin()) {
+    return;
+  }
+  try {
+    liveSession.setMannequinAnimation(mannequinAnimation.value);
+    refreshLiveGeometry(true);
+    projection = computeProjectionFromPositions(livePositions, liveCapsule);
+    updateSettingsSummary();
+    drawFrame();
+  } catch (error) {
+    status.textContent = `Could not change mannequin animation: ${formatError(error)}`;
+  }
+});
+
+mannequinAnimationSpeed.addEventListener("input", () => {
+  updateControlLabels();
+  if (!liveSession?.hasMannequin()) {
+    return;
+  }
+  try {
+    liveSession.setMannequinAnimationSpeed(Number(mannequinAnimationSpeed.value));
+    updateSettingsSummary();
+  } catch (error) {
+    status.textContent = `Could not change mannequin animation speed: ${formatError(error)}`;
   }
 });
 
