@@ -479,7 +479,10 @@ fn hip_attachments(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FixedStepConfig, TextilePreset, TriangleMeshCloth, mannequin::MannequinAnimator};
+    use crate::{
+        FixedStepConfig, MannequinAnimation, TextilePreset, TriangleMeshCloth,
+        mannequin::MannequinAnimator,
+    };
 
     #[test]
     fn all_templates_build_as_valid_triangle_meshes() {
@@ -589,6 +592,73 @@ mod tests {
                 assert!((actual.y - expected.y).abs() < 1.0e-5);
                 assert!((actual.z - expected.z).abs() < 1.0e-5);
             }
+        }
+    }
+
+    fn animated_drape_evidence(
+        template: GarmentTemplate,
+        animation: MannequinAnimation,
+    ) -> (usize, u64) {
+        let asset = template.build(18).expect("animated garment template");
+        let parameters = TextilePreset::CottonLike.parameters();
+        let mut cloth = TriangleMeshCloth::new(
+            asset.positions(),
+            asset.triangles(),
+            parameters.triangle_mesh_config(1.0),
+        )
+        .expect("template mesh");
+        let mut animator = MannequinAnimator::new();
+        animator.set_animation(animation);
+        let attachments = asset
+            .mannequin_attachments()
+            .iter()
+            .copied()
+            .map(|attachment| {
+                let drag = cloth
+                    .begin_particle_drag(attachment.particle_index)
+                    .expect("template attachment particle");
+                cloth
+                    .update_particle_drag(drag, animator.attachment_target(attachment))
+                    .expect("initial attachment target");
+                (attachment, drag)
+            })
+            .collect::<Vec<_>>();
+
+        let config = FixedStepConfig::default();
+        let mut projections = 0;
+        for _ in 0..60 {
+            animator.advance(config.delta_seconds).expect("animation step");
+            for &(attachment, drag) in &attachments {
+                cloth
+                    .update_particle_drag(drag, animator.attachment_target(attachment))
+                    .expect("animated attachment target");
+            }
+            let report = cloth
+                .step_with_contacts(
+                    config,
+                    animator.colliders(),
+                    parameters.contact_config(),
+                )
+                .expect("animated cloth step");
+            projections += report.collision_projections;
+        }
+        (projections, cloth.state_fingerprint())
+    }
+
+    #[test]
+    fn animated_t_shirt_drape_replays_deterministically() {
+        for animation in [MannequinAnimation::Walk, MannequinAnimation::Wave] {
+            let first = animated_drape_evidence(GarmentTemplate::TShirt, animation);
+            let second = animated_drape_evidence(GarmentTemplate::TShirt, animation);
+
+            assert!(
+                first.0 > 0,
+                "{animation:?} must produce mannequin contact during the cloth replay"
+            );
+            assert_eq!(
+                first, second,
+                "{animation:?} cloth/mannequin replay must remain deterministic"
+            );
         }
     }
 
