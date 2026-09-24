@@ -183,6 +183,18 @@ impl BrowserClothSession {
             .collect()
     }
 
+    #[wasm_bindgen(js_name = mannequinAttachedIndices)]
+    pub fn mannequin_attached_indices(&self) -> Result<Vec<u32>, JsValue> {
+        self.mannequin_attachments
+            .keys()
+            .copied()
+            .map(|index| {
+                u32::try_from(index)
+                    .map_err(|_| JsValue::from_str("mannequin attachment index exceeds u32"))
+            })
+            .collect()
+    }
+
     #[wasm_bindgen(js_name = capsuleCollider)]
     #[must_use]
     pub fn capsule_collider(&self) -> Vec<f64> {
