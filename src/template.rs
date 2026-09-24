@@ -4,7 +4,7 @@ use three_d_animation::retarget::HumanoidBone;
 
 use crate::{
     CapsuleCollider, ClothCollider, Vec3, garment::simulation_geometry_fingerprint,
-    mannequin::{MannequinAnimator, MannequinAttachment},
+    mannequin::MannequinAttachment,
 };
 
 const MIN_TEMPLATE_RESOLUTION: u32 = 6;
@@ -257,7 +257,7 @@ fn build_t_shirt(columns: usize) -> GarmentTemplateAsset {
         pinned_indices,
         editable_obstacle: None,
     }
-}}
+}
 
 fn build_cape(columns: usize) -> GarmentTemplateAsset {
     let rows = ((columns - 1) * 4 + 1) / 3 + 1;
@@ -283,7 +283,7 @@ fn build_cape(columns: usize) -> GarmentTemplateAsset {
         pinned_indices,
         editable_obstacle: None,
     }
-}}
+}
 
 fn build_skirt(columns: usize) -> GarmentTemplateAsset {
     let rows = ((columns - 1) * 3 + 2) / 4 + 1;
@@ -309,7 +309,7 @@ fn build_skirt(columns: usize) -> GarmentTemplateAsset {
         pinned_indices,
         editable_obstacle: None,
     }
-}}
+}
 
 fn build_dress(columns: usize) -> GarmentTemplateAsset {
     let rows = ((columns - 1) * 7 + 3) / 5 + 1;
@@ -350,7 +350,7 @@ fn build_dress(columns: usize) -> GarmentTemplateAsset {
         pinned_indices,
         editable_obstacle: None,
     }
-}}
+}
 
 fn build_poncho(columns: usize) -> GarmentTemplateAsset {
     let rows = ((columns - 1) * 6 + 2) / 5 + 1;
@@ -479,7 +479,7 @@ fn hip_attachments(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FixedStepConfig, TextilePreset, TriangleMeshCloth};
+    use crate::{FixedStepConfig, TextilePreset, TriangleMeshCloth, mannequin::MannequinAnimator};
 
     #[test]
     fn all_templates_build_as_valid_triangle_meshes() {
