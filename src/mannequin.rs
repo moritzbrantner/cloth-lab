@@ -16,6 +16,7 @@ use crate::{CapsuleCollider, ClothCollider, SphereCollider};
 
 #[cfg(any(target_arch = "wasm32", test))]
 const COLLISION_THICKNESS: f64 = 0.025;
+#[cfg(any(target_arch = "wasm32", test))]
 const MAX_ANIMATION_SPEED: f32 = 16.0;
 
 const HIPS: usize = 0;
