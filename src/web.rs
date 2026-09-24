@@ -624,7 +624,10 @@ fn build_template_session(
         .collect::<BTreeMap<_, _>>();
     let source_kind = asset.template().source_kind();
     let normalized_asset_fingerprint = asset.simulation_fingerprint();
-    let mannequin = asset.template().uses_mannequin().then(MannequinAnimator::new);
+    let mannequin = asset
+        .template()
+        .uses_mannequin()
+        .then(MannequinAnimator::new);
     let mut colliders = mannequin
         .as_ref()
         .map_or_else(Vec::new, |mannequin| mannequin.colliders().to_vec());
