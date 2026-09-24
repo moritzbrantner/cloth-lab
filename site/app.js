@@ -813,23 +813,61 @@ function capturePins() {
   if (!liveSession) {
     return null;
   }
-  return livePinned.map((index) => ({ index, target: [...livePositions[index]] }));
+  const mannequinAttached = new Set(Array.from(liveSession.mannequinAttachedIndices()));
+  return livePinned.map((index) => ({
+    index,
+    target: [...livePositions[index]],
+    attached: mannequinAttached.has(index),
+  }));
 }
 
 function restorePins(session, pins) {
   if (pins === null) {
     return;
   }
-  for (const index of Array.from(session.pinnedIndices())) {
-    session.unpinParticle(index);
-  }
   const vertexCount = session.vertexCount();
-  for (const pin of pins) {
-    if (pin.index < 0 || pin.index >= vertexCount || !pin.target.every(Number.isFinite)) {
-      continue;
+  const validPins = pins.filter(
+    (pin) =>
+      pin.index >= 0 &&
+      pin.index < vertexCount &&
+      Array.isArray(pin.target) &&
+      pin.target.length === 3 &&
+      pin.target.every(Number.isFinite),
+  );
+  const operations = planPinRestoration(
+    Array.from(session.pinnedIndices()),
+    Array.from(session.mannequinAttachedIndices()),
+    validPins,
+  );
+  for (const operation of operations) {
+    switch (operation.kind) {
+      case "keep-attached":
+        break;
+      case "remove":
+        session.unpinParticle(operation.index);
+        break;
+      case "replace-detached":
+        session.unpinParticle(operation.index);
+        session.pinParticle(operation.index);
+        session.movePin(
+          operation.index,
+          operation.target[0],
+          operation.target[1],
+          operation.target[2],
+        );
+        break;
+      case "add-detached":
+        session.pinParticle(operation.index);
+        session.movePin(
+          operation.index,
+          operation.target[0],
+          operation.target[1],
+          operation.target[2],
+        );
+        break;
+      default:
+        throw new Error(`unknown pin restoration operation: ${operation.kind}`);
     }
-    session.pinParticle(pin.index);
-    session.movePin(pin.index, pin.target[0], pin.target[1], pin.target[2]);
   }
 }
 
