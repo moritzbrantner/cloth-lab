@@ -1,7 +1,10 @@
 use core::fmt;
 
+use three_d_animation::retarget::HumanoidBone;
+
 use crate::{
-    CapsuleCollider, ClothCollider, SphereCollider, Vec3, garment::simulation_geometry_fingerprint,
+    CapsuleCollider, ClothCollider, Vec3, garment::simulation_geometry_fingerprint,
+    mannequin::{MannequinAnimator, MannequinAttachment},
 };
 
 const MIN_TEMPLATE_RESOLUTION: u32 = 6;
@@ -124,7 +127,7 @@ pub struct GarmentTemplateAsset {
     positions: Vec<Vec3>,
     triangles: Vec<[usize; 3]>,
     pinned_indices: Vec<usize>,
-    scene_colliders: Vec<ClothCollider>,
+    mannequin_attachments: Vec<MannequinAttachment>,
     editable_obstacle: Option<ClothCollider>,
 }
 
@@ -150,8 +153,12 @@ impl GarmentTemplateAsset {
     }
 
     #[must_use]
-    pub fn scene_colliders(&self) -> &[ClothCollider] {
-        &self.scene_colliders
+    pub fn mannequin_attachment_count(&self) -> usize {
+        self.mannequin_attachments.len()
+    }
+
+    pub(crate) fn mannequin_attachments(&self) -> &[MannequinAttachment] {
+        &self.mannequin_attachments
     }
 
     #[must_use]
@@ -212,7 +219,7 @@ fn build_sheet(columns: usize) -> GarmentTemplateAsset {
         triangles: regular_grid_triangles(columns, rows),
         pinned_indices: vec![0, columns - 1],
         positions,
-        scene_colliders: Vec::new(),
+        mannequin_attachments: Vec::new(),
         editable_obstacle: Some(ClothCollider::Capsule(DEMO_CAPSULE)),
     }
 }
@@ -244,13 +251,13 @@ fn build_t_shirt(columns: usize) -> GarmentTemplateAsset {
 
     GarmentTemplateAsset {
         template: GarmentTemplate::TShirt,
+        mannequin_attachments: shoulder_attachments(&positions, &pinned_indices),
         positions,
         triangles,
         pinned_indices,
-        scene_colliders: mannequin_colliders(),
         editable_obstacle: None,
     }
-}
+}}
 
 fn build_cape(columns: usize) -> GarmentTemplateAsset {
     let rows = ((columns - 1) * 4 + 1) / 3 + 1;
@@ -270,13 +277,13 @@ fn build_cape(columns: usize) -> GarmentTemplateAsset {
 
     GarmentTemplateAsset {
         template: GarmentTemplate::Cape,
+        mannequin_attachments: shoulder_attachments(&positions, &pinned_indices),
         positions,
         triangles,
         pinned_indices,
-        scene_colliders: mannequin_colliders(),
         editable_obstacle: None,
     }
-}
+}}
 
 fn build_skirt(columns: usize) -> GarmentTemplateAsset {
     let rows = ((columns - 1) * 3 + 2) / 4 + 1;
@@ -296,13 +303,13 @@ fn build_skirt(columns: usize) -> GarmentTemplateAsset {
 
     GarmentTemplateAsset {
         template: GarmentTemplate::Skirt,
+        mannequin_attachments: hip_attachments(&positions, &pinned_indices),
         positions,
         triangles,
         pinned_indices,
-        scene_colliders: mannequin_colliders(),
         editable_obstacle: None,
     }
-}
+}}
 
 fn build_dress(columns: usize) -> GarmentTemplateAsset {
     let rows = ((columns - 1) * 7 + 3) / 5 + 1;
@@ -337,13 +344,13 @@ fn build_dress(columns: usize) -> GarmentTemplateAsset {
 
     GarmentTemplateAsset {
         template: GarmentTemplate::Dress,
+        mannequin_attachments: shoulder_attachments(&positions, &pinned_indices),
         positions,
         triangles,
         pinned_indices,
-        scene_colliders: mannequin_colliders(),
         editable_obstacle: None,
     }
-}
+}}
 
 fn build_poncho(columns: usize) -> GarmentTemplateAsset {
     let rows = ((columns - 1) * 6 + 2) / 5 + 1;
@@ -370,13 +377,13 @@ fn build_poncho(columns: usize) -> GarmentTemplateAsset {
 
     GarmentTemplateAsset {
         template: GarmentTemplate::Poncho,
+        mannequin_attachments: shoulder_attachments(&positions, &pinned_indices),
         positions,
         triangles,
         pinned_indices,
-        scene_colliders: mannequin_colliders(),
         editable_obstacle: None,
     }
-}
+}}
 
 fn variable_width_panel(
     columns: usize,
@@ -434,56 +441,39 @@ fn nearest_top_vertex(positions: &[Vec3], columns: usize, target_x: f64) -> usiz
         .map_or(0, |(index, _)| index)
 }
 
-fn mannequin_colliders() -> Vec<ClothCollider> {
+fn shoulder_attachments(
+    positions: &[Vec3],
+    pinned_indices: &[usize],
+) -> Vec<MannequinAttachment> {
     vec![
-        ClothCollider::Sphere(SphereCollider {
-            center: Vec3::new(0.0, 1.62, 0.0),
-            radius: 0.26,
-            thickness: COLLISION_THICKNESS,
-        }),
-        ClothCollider::Capsule(CapsuleCollider {
-            start: Vec3::new(-0.56, 1.08, 0.0),
-            end: Vec3::new(0.56, 1.08, 0.0),
-            radius: 0.2,
-            thickness: COLLISION_THICKNESS,
-        }),
-        ClothCollider::Capsule(CapsuleCollider {
-            start: Vec3::new(0.0, -0.18, 0.0),
-            end: Vec3::new(0.0, 0.92, 0.0),
-            radius: 0.39,
-            thickness: COLLISION_THICKNESS,
-        }),
-        ClothCollider::Capsule(CapsuleCollider {
-            start: Vec3::new(-0.52, 1.0, 0.0),
-            end: Vec3::new(-1.0, 0.72, 0.0),
-            radius: 0.16,
-            thickness: COLLISION_THICKNESS,
-        }),
-        ClothCollider::Capsule(CapsuleCollider {
-            start: Vec3::new(0.52, 1.0, 0.0),
-            end: Vec3::new(1.0, 0.72, 0.0),
-            radius: 0.16,
-            thickness: COLLISION_THICKNESS,
-        }),
-        ClothCollider::Capsule(CapsuleCollider {
-            start: Vec3::new(-0.38, -0.2, 0.0),
-            end: Vec3::new(0.38, -0.2, 0.0),
-            radius: 0.24,
-            thickness: COLLISION_THICKNESS,
-        }),
-        ClothCollider::Capsule(CapsuleCollider {
-            start: Vec3::new(-0.2, -1.42, 0.0),
-            end: Vec3::new(-0.2, -0.38, 0.0),
-            radius: 0.16,
-            thickness: COLLISION_THICKNESS,
-        }),
-        ClothCollider::Capsule(CapsuleCollider {
-            start: Vec3::new(0.2, -1.42, 0.0),
-            end: Vec3::new(0.2, -0.38, 0.0),
-            radius: 0.16,
-            thickness: COLLISION_THICKNESS,
-        }),
+        MannequinAttachment::from_rest_position(
+            pinned_indices[0],
+            HumanoidBone::LeftUpperArm,
+            positions[pinned_indices[0]],
+        ),
+        MannequinAttachment::from_rest_position(
+            pinned_indices[1],
+            HumanoidBone::RightUpperArm,
+            positions[pinned_indices[1]],
+        ),
     ]
+}
+
+fn hip_attachments(
+    positions: &[Vec3],
+    pinned_indices: &[usize],
+) -> Vec<MannequinAttachment> {
+    pinned_indices
+        .iter()
+        .copied()
+        .map(|particle_index| {
+            MannequinAttachment::from_rest_position(
+                particle_index,
+                HumanoidBone::Hips,
+                positions[particle_index],
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -532,7 +522,7 @@ mod tests {
             center.y < shoulder.y,
             "neckline should dip below the shoulder edge"
         );
-        assert_eq!(asset.scene_colliders().len(), 8);
+        assert_eq!(asset.mannequin_attachment_count(), 2);
         assert_eq!(asset.pinned_indices().len(), 2);
     }
 
@@ -549,12 +539,13 @@ mod tests {
             cloth.pin(index).expect("template pin");
         }
 
+        let animator = MannequinAnimator::new();
         let mut collision_projections = 0;
         for _ in 0..12 {
             let report = cloth
                 .step_with_contacts(
                     FixedStepConfig::default(),
-                    asset.scene_colliders(),
+                    animator.colliders(),
                     parameters.contact_config(),
                 )
                 .expect("template step");
@@ -580,6 +571,24 @@ mod tests {
                 first, second,
                 "{template:?} mannequin drape replay must be deterministic"
             );
+        }
+    }
+
+    #[test]
+    fn mannequin_attachments_start_at_authored_garment_vertices() {
+        for template in GarmentTemplate::ALL
+            .into_iter()
+            .filter(|template| template.uses_mannequin())
+        {
+            let asset = template.build(18).expect("mannequin garment template");
+            let animator = MannequinAnimator::new();
+            for &attachment in asset.mannequin_attachments() {
+                let expected = asset.positions()[attachment.particle_index];
+                let actual = animator.attachment_target(attachment);
+                assert!((actual.x - expected.x).abs() < 1.0e-5);
+                assert!((actual.y - expected.y).abs() < 1.0e-5);
+                assert!((actual.z - expected.z).abs() < 1.0e-5);
+            }
         }
     }
 
