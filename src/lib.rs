@@ -8,6 +8,7 @@
 mod cloth;
 mod garment;
 mod material;
+mod mannequin;
 mod math;
 mod obstacle;
 mod self_collision;
@@ -26,6 +27,7 @@ pub use garment::{
     ObjGarmentImporter,
 };
 pub use material::{TextileParameters, TextilePreset};
+pub use mannequin::{MannequinAnimation, MannequinAnimationError};
 pub use math::Vec3;
 pub use obstacle::{ClothObstacleConfig, ClothObstacleError, ClothObstacleKind};
 pub use self_collision::{
