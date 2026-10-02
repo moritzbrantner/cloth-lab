@@ -35,9 +35,12 @@ jobs:
       - name: Check Pages JavaScript
         run: |
           node --check site/app.js
+          node --check site/pin-restoration.js
           node --check site/self_collision.js
           node --check site/obstacle.js
           node --check site/camera.js
           node --check site/precision-controls.js
       - name: Test exact numeric controls
         run: node --test tests/precision-controls.test.cjs
+      - name: Test pin restoration provenance
+        run: node --test tests/pin-restoration.test.cjs

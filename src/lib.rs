@@ -7,6 +7,7 @@
 
 mod cloth;
 mod garment;
+mod mannequin;
 mod material;
 mod math;
 mod obstacle;
@@ -25,6 +26,7 @@ pub use garment::{
     GarmentAsset, GarmentImportError, GarmentImporter, GarmentSourceFormat, GlbGarmentImporter,
     ObjGarmentImporter,
 };
+pub use mannequin::{MannequinAnimation, MannequinAnimationError};
 pub use material::{TextileParameters, TextilePreset};
 pub use math::Vec3;
 pub use obstacle::{ClothObstacleConfig, ClothObstacleError, ClothObstacleKind};
@@ -34,4 +36,4 @@ pub use self_collision::{
 };
 pub use template::{GarmentTemplate, GarmentTemplateAsset, GarmentTemplateError};
 #[cfg(target_arch = "wasm32")]
-pub use web::{BrowserClothSession, garment_template_catalog};
+pub use web::{BrowserClothSession, garment_template_catalog, mannequin_animation_catalog};
