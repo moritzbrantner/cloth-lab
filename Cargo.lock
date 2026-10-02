@@ -27,7 +27,7 @@ dependencies = [
  "gltf",
  "spatial-kernels",
  "three-d-animation",
- "three-d-core",
+ "three-d-core 0.1.0 (git+https://github.com/moritzbrantner/3d-lab?rev=f2acf53d44a1f0339749404a8b38cfa65834fdde)",
  "wasm-bindgen",
 ]
 
@@ -191,23 +191,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "unicode-ident"
-version = "1.0.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
-
-[[package]]
 name = "three-d-animation"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/3d-lab?rev=f2acf53d44a1f0339749404a8b38cfa65834fdde#f2acf53d44a1f0339749404a8b38cfa65834fdde"
+source = "git+https://github.com/moritzbrantner/3d-lab?rev=5340bdf31de6761ed16737dd6d19da2431172fd6#5340bdf31de6761ed16737dd6d19da2431172fd6"
 dependencies = [
- "three-d-core",
+ "three-d-core 0.1.0 (git+https://github.com/moritzbrantner/3d-lab?rev=5340bdf31de6761ed16737dd6d19da2431172fd6)",
 ]
 
 [[package]]
 name = "three-d-core"
 version = "0.1.0"
+source = "git+https://github.com/moritzbrantner/3d-lab?rev=5340bdf31de6761ed16737dd6d19da2431172fd6#5340bdf31de6761ed16737dd6d19da2431172fd6"
+
+[[package]]
+name = "three-d-core"
+version = "0.1.0"
 source = "git+https://github.com/moritzbrantner/3d-lab?rev=f2acf53d44a1f0339749404a8b38cfa65834fdde#f2acf53d44a1f0339749404a8b38cfa65834fdde"
+
+[[package]]
+name = "unicode-ident"
+version = "1.0.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "wasm-bindgen"
