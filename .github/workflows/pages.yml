@@ -36,7 +36,7 @@ jobs:
             --out-name cloth_lab \
             target/wasm32-unknown-unknown/release/cloth_lab.wasm
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
