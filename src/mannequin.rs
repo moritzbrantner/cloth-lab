@@ -381,10 +381,16 @@ fn node_for_bone(bone: HumanoidBone) -> Option<usize> {
         HumanoidBone::LeftLowerLeg => Some(LEFT_LOWER_LEG),
         HumanoidBone::RightUpperLeg => Some(RIGHT_UPPER_LEG),
         HumanoidBone::RightLowerLeg => Some(RIGHT_LOWER_LEG),
+        // The mannequin has no joints for these bones; they keep driving nothing.
         HumanoidBone::LeftHand
         | HumanoidBone::RightHand
         | HumanoidBone::LeftFoot
-        | HumanoidBone::RightFoot => None,
+        | HumanoidBone::RightFoot
+        | HumanoidBone::Root
+        | HumanoidBone::LeftShoulder
+        | HumanoidBone::RightShoulder
+        | HumanoidBone::LeftToes
+        | HumanoidBone::RightToes => None,
     }
 }
 
