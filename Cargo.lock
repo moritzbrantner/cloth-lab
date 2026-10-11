@@ -27,7 +27,7 @@ dependencies = [
  "gltf",
  "spatial-kernels",
  "three-d-animation",
- "three-d-core",
+ "three-d-core 0.1.0 (git+https://github.com/moritzbrantner/3d-lab?rev=a39a673e319299c6186d07b1ced5644587b17509)",
  "wasm-bindgen",
 ]
 
@@ -195,13 +195,18 @@ name = "three-d-animation"
 version = "0.1.0"
 source = "git+https://github.com/moritzbrantner/3d-lab?rev=5340bdf31de6761ed16737dd6d19da2431172fd6#5340bdf31de6761ed16737dd6d19da2431172fd6"
 dependencies = [
- "three-d-core",
+ "three-d-core 0.1.0 (git+https://github.com/moritzbrantner/3d-lab?rev=5340bdf31de6761ed16737dd6d19da2431172fd6)",
 ]
 
 [[package]]
 name = "three-d-core"
 version = "0.1.0"
 source = "git+https://github.com/moritzbrantner/3d-lab?rev=5340bdf31de6761ed16737dd6d19da2431172fd6#5340bdf31de6761ed16737dd6d19da2431172fd6"
+
+[[package]]
+name = "three-d-core"
+version = "0.1.0"
+source = "git+https://github.com/moritzbrantner/3d-lab?rev=a39a673e319299c6186d07b1ced5644587b17509#a39a673e319299c6186d07b1ced5644587b17509"
 
 [[package]]
 name = "unicode-ident"
