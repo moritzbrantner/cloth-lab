@@ -1,18 +1,29 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>moritzbrantner/coding-agent-conventions"],
+  "extends": [
+    "github>moritzbrantner/coding-agent-conventions"
+  ],
   "packageRules": [
     {
       "description": "Crates pinned to one commit of the same git repository share types, so their pins must move together.",
-      "matchManagers": ["cargo"],
-      "matchDepNames": ["/^three-d-.+$/"],
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchDepNames": [
+        "/^three-d-.+$/"
+      ],
       "groupName": "3d-lab crates"
     },
     {
       "description": "Crates pinned to one commit of the same git repository share types, so their pins must move together.",
-      "matchManagers": ["cargo"],
-      "matchDepNames": ["/-kernels$/"],
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchDepNames": [
+        "/-kernels$/"
+      ],
       "groupName": "rust-kernels crates"
     }
-  ]
+  ],
+  "platformAutomerge": true
 }
