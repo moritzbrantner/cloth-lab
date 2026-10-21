@@ -390,7 +390,8 @@ fn node_for_bone(bone: HumanoidBone) -> Option<usize> {
         | HumanoidBone::LeftShoulder
         | HumanoidBone::RightShoulder
         | HumanoidBone::LeftToes
-        | HumanoidBone::RightToes => None,
+        | HumanoidBone::RightToes
+        | HumanoidBone::UpperChest => None,
     }
 }
 
