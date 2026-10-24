@@ -166,7 +166,7 @@ dependencies = [
 [[package]]
 name = "spatial-kernels"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/rust-kernels?rev=b8e794da47aa8a4ebd6b8580f054e49ec38ab4d0#b8e794da47aa8a4ebd6b8580f054e49ec38ab4d0"
+source = "git+https://github.com/moritzbrantner/rust-kernels?rev=89731e09e2cd639edcd04b88f97c1c76e4c2c5cb#89731e09e2cd639edcd04b88f97c1c76e4c2c5cb"
 
 [[package]]
 name = "syn"
