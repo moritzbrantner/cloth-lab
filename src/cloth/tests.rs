@@ -93,6 +93,26 @@ fn rectangular_topology_has_stable_ordering() {
 }
 
 #[test]
+fn step_replay_matches_recorded_fingerprints() {
+    let mut free = cloth_fixture();
+    for _ in 0..120 {
+        free.step(FixedStepConfig::default()).unwrap();
+    }
+    assert_eq!(free.state_fingerprint(), 0xf89b_262e_95e3_b438);
+
+    let contact = ContactConfig {
+        friction_coefficient: 0.65,
+    };
+    let mut contacting = cloth_fixture();
+    for _ in 0..120 {
+        contacting
+            .step_with_contacts(FixedStepConfig::default(), &[capsule_fixture()], contact)
+            .unwrap();
+    }
+    assert_eq!(contacting.state_fingerprint(), 0x7ee2_163a_f44c_4fe2);
+}
+
+#[test]
 fn pinned_corners_remain_exactly_fixed() {
     let mut cloth = cloth_fixture();
     let left = cloth.particles()[0].position();

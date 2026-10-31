@@ -2,6 +2,7 @@ use super::geometry::dot;
 use super::{BendingConstraint, DistanceConstraint, Particle};
 use crate::Vec3;
 
+#[inline]
 pub(super) fn solve_distance_constraint(
     particles: &mut [Particle],
     constraint: &mut DistanceConstraint,
@@ -26,6 +27,7 @@ pub(super) fn solve_distance_constraint(
     particle_b.position -= normal * (particle_b.inverse_mass * delta_lambda);
 }
 
+#[inline]
 pub(super) fn solve_bending_constraint(
     particles: &mut [Particle],
     constraint: &mut BendingConstraint,
