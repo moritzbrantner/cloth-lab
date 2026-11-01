@@ -14,8 +14,8 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 gltf = { version = "1.4.1", default-features = false, features = ["utils"] }
 spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "166eb4d8a131bbca9afb154fd04133bbcf82223a" }
-three-d-animation = { git = "https://github.com/moritzbrantner/3d-lab", rev = "8fa2b4f3057d3479ee8166f34d83705e283012cd", package = "three-d-animation" }
-three-d-core = { git = "https://github.com/moritzbrantner/3d-lab", rev = "8fa2b4f3057d3479ee8166f34d83705e283012cd", package = "three-d-core" }
+three-d-animation = { git = "https://github.com/moritzbrantner/3d-lab", rev = "2ef8cc9488d5ad0e3bf87cde5e09674ac6cee4d9", package = "three-d-animation" }
+three-d-core = { git = "https://github.com/moritzbrantner/3d-lab", rev = "2ef8cc9488d5ad0e3bf87cde5e09674ac6cee4d9", package = "three-d-core" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.130"
