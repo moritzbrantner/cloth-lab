@@ -187,7 +187,7 @@ dependencies = [
 [[package]]
 name = "three-d-animation"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/3d-lab?rev=6bd382d81687a33633e927f69258726f0b85c296#6bd382d81687a33633e927f69258726f0b85c296"
+source = "git+https://github.com/moritzbrantner/3d-lab?rev=fb85102248b55e0a3f767cfc6ffcd141f45e710c#fb85102248b55e0a3f767cfc6ffcd141f45e710c"
 dependencies = [
  "three-d-core",
 ]
@@ -195,7 +195,7 @@ dependencies = [
 [[package]]
 name = "three-d-core"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/3d-lab?rev=6bd382d81687a33633e927f69258726f0b85c296#6bd382d81687a33633e927f69258726f0b85c296"
+source = "git+https://github.com/moritzbrantner/3d-lab?rev=fb85102248b55e0a3f767cfc6ffcd141f45e710c#fb85102248b55e0a3f767cfc6ffcd141f45e710c"
 
 [[package]]
 name = "unicode-ident"
