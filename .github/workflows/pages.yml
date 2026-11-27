@@ -25,8 +25,18 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Generate deterministic cloth snapshots
         run: cargo run --locked --release --example pages_snapshot > site/frames.json
-      - name: Install wasm-bindgen CLI
-        run: cargo install wasm-bindgen-cli --version 0.2.128 --locked
+      # The CLI must match the wasm-bindgen crate in Cargo.lock exactly; read it instead of hard-coding it.
+      - name: Read wasm-bindgen version from Cargo.lock
+        id: wasm-bindgen
+        run: |
+          version="$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # Official publisher release, digest-verified at download; fails closed instead of compiling from source.
+      - name: Install verified wasm-bindgen CLI
+        uses: moritzbrantner/reusable-workflows/.github/actions/install-verified-wasm-cli@f17cd13868ab7d956b9e8a9afae926a84b368d0d
+        with:
+          tool: wasm-bindgen
+          version: ${{ steps.wasm-bindgen.outputs.version }}
       - name: Build interactive cloth WebAssembly
         run: |
           cargo build --locked --release --target wasm32-unknown-unknown
